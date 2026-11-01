@@ -1,0 +1,8 @@
+id: favorites
+version: 0.1.0
+kind: library
+scenario_tests:
+  FAV-01:
+    - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
+  FAV-02:
+    - integration_test.go#TestLegacyImportResumesWithoutDuplicatesOrResurrection
