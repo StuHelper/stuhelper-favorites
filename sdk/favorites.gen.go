@@ -98,6 +98,21 @@ func (e ListFavoritesParamsSort) Valid() bool {
 	}
 }
 
+// Defines values for ImportLegacyFavorites200JSONResponseBodyCompleted.
+const (
+	True ImportLegacyFavorites200JSONResponseBodyCompleted = true
+)
+
+// Valid indicates whether the value is a known member of the ImportLegacyFavorites200JSONResponseBodyCompleted enum.
+func (e ImportLegacyFavorites200JSONResponseBodyCompleted) Valid() bool {
+	switch e {
+	case True:
+		return true
+	default:
+		return false
+	}
+}
+
 // Add defines model for Add.
 type Add struct {
 	FolderId *string `json:"folder_id,omitempty"`
@@ -231,6 +246,9 @@ type MoveFavoriteParams struct {
 type RemoveFavoriteParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
+
+// ImportLegacyFavorites200JSONResponseBodyCompleted defines parameters for ImportLegacyFavorites.
+type ImportLegacyFavorites200JSONResponseBodyCompleted bool
 
 // CreateFolderJSONRequestBody defines body for CreateFolder for application/json ContentType.
 type CreateFolderJSONRequestBody = Name
@@ -377,6 +395,11 @@ type ClientInterface interface {
 	// RemoveFavorite performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type.
 	RemoveFavorite(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ImportLegacyFavorites performs a POST /api/v1/favorites/legacy-import (the `ImportLegacyFavorites` operationId) request.
+	//
+	// 显式恢复本人旧课程收藏迁移。每次最多 2000 条、3 秒，未完成或依赖故障返回 503；列表读取不触发迁移。.
+	ImportLegacyFavorites(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
@@ -563,6 +586,21 @@ func (c *Client) RemoveFavoriteWithBody(ctx context.Context, id string, params *
 // Takes a body of the `application/json` content type.
 func (c *Client) RemoveFavorite(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRemoveFavoriteRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ImportLegacyFavorites performs a POST /api/v1/favorites/legacy-import (the `ImportLegacyFavorites` operationId) request.
+//
+// 显式恢复本人旧课程收藏迁移。每次最多 2000 条、3 秒，未完成或依赖故障返回 503；列表读取不触发迁移。.
+func (c *Client) ImportLegacyFavorites(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewImportLegacyFavoritesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,6 +1137,33 @@ func NewRemoveFavoriteRequestWithBody(server string, id string, params *RemoveFa
 	return req, nil
 }
 
+// NewImportLegacyFavoritesRequest constructs an http.Request for the ImportLegacyFavorites method
+func NewImportLegacyFavoritesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/legacy-import")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1212,6 +1277,13 @@ type ClientWithResponsesInterface interface {
 	// RemoveFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	RemoveFavoriteWithResponse(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveFavoriteResponse, error)
+
+	// ImportLegacyFavoritesWithResponse performs a POST /api/v1/favorites/legacy-import (the `ImportLegacyFavorites` operationId) request.
+	//
+	// 显式恢复本人旧课程收藏迁移。每次最多 2000 条、3 秒，未完成或依赖故障返回 503；列表读取不触发迁移。.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ImportLegacyFavoritesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ImportLegacyFavoritesResponse, error)
 }
 
 type ListFoldersResponse struct {
@@ -1878,6 +1950,51 @@ func (r RemoveFavoriteResponse) ContentType() string {
 	return ""
 }
 
+type ImportLegacyFavoritesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Completed ImportLegacyFavorites200JSONResponseBodyCompleted `json:"completed"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ImportLegacyFavoritesResponse) GetJSON200() *struct {
+	Completed ImportLegacyFavorites200JSONResponseBodyCompleted `json:"completed"`
+} {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r ImportLegacyFavoritesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ImportLegacyFavoritesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ImportLegacyFavoritesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ImportLegacyFavoritesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2030,6 +2147,19 @@ func (c *ClientWithResponses) RemoveFavoriteWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseRemoveFavoriteResponse(rsp)
+}
+
+// ImportLegacyFavoritesWithResponse performs a POST /api/v1/favorites/legacy-import (the `ImportLegacyFavorites` operationId) request.
+//
+// 显式恢复本人旧课程收藏迁移。每次最多 2000 条、3 秒，未完成或依赖故障返回 503；列表读取不触发迁移。.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ImportLegacyFavoritesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ImportLegacyFavoritesResponse, error) {
+	rsp, err := c.ImportLegacyFavorites(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseImportLegacyFavoritesResponse(rsp)
 }
 
 // ParseListFoldersResponse parses an HTTP response from a ListFoldersWithResponse call
@@ -2570,6 +2700,43 @@ func ParseRemoveFavoriteResponse(rsp *http.Response) (*RemoveFavoriteResponse, e
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseImportLegacyFavoritesResponse parses an HTTP response from a ImportLegacyFavoritesWithResponse call
+func ParseImportLegacyFavoritesResponse(rsp *http.Response) (*ImportLegacyFavoritesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ImportLegacyFavoritesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Completed ImportLegacyFavorites200JSONResponseBodyCompleted `json:"completed"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case rsp.StatusCode == 401:
+		break // No content-type
+
+	case rsp.StatusCode == 403:
+		break // No content-type
+
+	case rsp.StatusCode == 503:
+		break // No content-type
 
 	}
 

@@ -5,6 +5,7 @@ scenario_tests:
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:
+    - integration_test.go#TestReadsNeverInvokeUnavailableLegacyProvider
     - integration_test.go#TestLegacyImportResumesWithoutDuplicatesOrResurrection
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection

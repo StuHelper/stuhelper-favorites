@@ -337,7 +337,7 @@ func TestLegacyImportResumesWithoutDuplicatesOrResurrection(t *testing.T) {
 	old := &legacy{}
 	old.fail.Store(true)
 	x.s.Legacy = old
-	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); !errors.Is(e, f.ErrUnavailable) {
+	if e := x.s.ImportLegacy(ctx, "alice"); !errors.Is(e, f.ErrUnavailable) {
 		t.Fatal(e)
 	}
 	var count int
@@ -348,7 +348,7 @@ func TestLegacyImportResumesWithoutDuplicatesOrResurrection(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
 	for range 8 {
-		wg.Go(func() { _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); errs <- e })
+		wg.Go(func() { errs <- x.s.ImportLegacy(ctx, "alice") })
 	}
 	wg.Wait()
 	close(errs)
@@ -376,7 +376,37 @@ func TestLegacyImportResumesWithoutDuplicatesOrResurrection(t *testing.T) {
 		t.Fatal("resurrected", count, e)
 	}
 	x.s.Legacy = nil
-	if _, e := x.s.List(ctx, "new-account", f.Filter{Limit: 30}); !errors.Is(e, f.ErrUnavailable) {
+	if e := x.s.ImportLegacy(ctx, "new-account"); !errors.Is(e, f.ErrUnavailable) {
 		t.Fatal("unknown legacy store treated as empty", e)
+	}
+}
+
+func TestReadsNeverInvokeUnavailableLegacyProvider(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	old := &legacy{}
+	old.fail.Store(true)
+	x.s.Legacy = old
+	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := x.s.ListFolders(ctx, "alice", "", 100); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := x.s.CourseBookmarks(ctx, "alice", "", 100); e != nil {
+		t.Fatal(e)
+	}
+	if old.calls.Load() != 0 {
+		t.Fatal("read triggered legacy migration", old.calls.Load())
+	}
+	x.s.Legacy = nil
+	if _, e := x.s.CreateFolder(ctx, "alice", "folder", "Study"); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); e != nil {
+		t.Fatal(e)
+	}
+	if e := x.s.ImportLegacy(ctx, "alice"); !errors.Is(e, f.ErrUnavailable) {
+		t.Fatal("missing provider falsely certified migration", e)
 	}
 }

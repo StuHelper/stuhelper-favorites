@@ -863,6 +863,49 @@
           }
         }
       }
+    },
+    "/api/v1/favorites/legacy-import": {
+      "post": {
+        "operationId": "importLegacyFavorites",
+        "description": "显式恢复本人旧课程收藏迁移。每次最多 2000 条、3 秒，未完成或依赖故障返回 503；列表读取不触发迁移。",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "迁移已完成",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "completed"
+                  ],
+                  "properties": {
+                    "completed": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未登录"
+          },
+          "403": {
+            "description": "账号已关闭"
+          },
+          "503": {
+            "description": "迁移未完成或依赖不可用，可显式重试"
+          }
+        }
+      }
     }
   },
   "components": {

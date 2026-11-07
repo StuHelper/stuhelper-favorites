@@ -6,7 +6,18 @@ import (
 	"time"
 )
 
-func (s *Service) ensure(ctx context.Context, owner string) error {
+func (s *Service) ensure(_ context.Context, owner string) error {
+	if !valid(owner, 2048) {
+		return ErrUnauthenticated
+	}
+	if s.Repo == nil {
+		return ErrUnavailable
+	}
+	return nil
+}
+
+// ImportLegacy is an explicit, bounded operation. Ordinary reads never call it.
+func (s *Service) ImportLegacy(ctx context.Context, owner string) error {
 	if !valid(owner, 2048) {
 		return ErrUnauthenticated
 	}
@@ -16,7 +27,7 @@ func (s *Service) ensure(ctx context.Context, owner string) error {
 	call, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	// At most 2,000 old rows per call. Durable progress survives unavailable sources,
-	// unknown commit results and retries; clients retry 503 until all pages are imported.
+	// unknown commit results and retries; only explicit migration requests resume it.
 	for range 20 {
 		var after string
 		var done bool

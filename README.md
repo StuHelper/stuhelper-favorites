@@ -16,7 +16,7 @@
 
 ## 旧课程收藏迁移
 
-Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的分页。favorites 每次最多迁移 2,000 条并保存分页进度；依赖不可用或尚未完成时返回 503，后续请求继续迁移。
+Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的分页。用户显式调用 POST /api/v1/favorites/legacy-import，每次最多迁移 2,000 条并保存分页进度。依赖不可用或尚未完成时返回 503，显式重试继续迁移。普通读写请求不调用旧库。
 
 迁入默认夹的旧记录保留目标 ID。目录已删除的对象允许名称为空。迁移完成后不再读取旧库。原 reviews HTTP 入口转发到本模块，尚在有效期内的旧幂等回执保留原结果，已取消记录不会因旧请求重试重新出现。
 
@@ -26,9 +26,11 @@ Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的�
 
 按锁文件执行 `make setup`，设置独立 PostgreSQL 的 `STUHELPER_FAVORITES_TEST_DSN` 后执行 `make check`。CI 使用最新稳定 PostgreSQL 元包。本模块没有访问真实账号或生产数据的脚本。
 
-迁移调用 `postgres.Migrate`，运行身份只取得 favorites schema 的 USAGE、表 SELECT/INSERT/UPDATE/DELETE 和序列 USAGE；events 只允许 SELECT/INSERT，requests 另授予 DELETE 用于注销清理。`CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计记录的 UPDATE/DELETE 和幂等记录的 UPDATE 权限。
+迁移调用 `postgres.Migrate`，运行身份只取得 favorites schema 的 USAGE、表 SELECT/INSERT/UPDATE/DELETE 和序列 USAGE；events 只允许 SELECT/INSERT，requests 另授予 DELETE 用于注销清理。
 
-后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。catalog、reviews 必需，resources 不可用时只有新增资料收藏受影响。
+`CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计记录的 UPDATE/DELETE 和幂等记录的 UPDATE 权限。
+
+后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。reviews 只影响显式迁移。本人列表和收藏夹管理不依赖 reviews，resources 不可用时只有新增资料收藏受影响。
 
 | 场景 | 实际检查 |
 | --- | --- |

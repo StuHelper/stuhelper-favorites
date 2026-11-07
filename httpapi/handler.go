@@ -56,6 +56,9 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if r.Method == http.MethodPost {
 		switch {
+		case len(parts) == 1 && parts[0] == "legacy-import":
+			e = h.Service.ImportLegacy(ctx, owner)
+			out = map[string]bool{"completed": e == nil}
 		case len(parts) == 1 && parts[0] == "folders":
 			var in struct {
 				Name string `json:"name"`
