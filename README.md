@@ -26,7 +26,7 @@ Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的�
 
 按锁文件执行 `make setup`，设置独立 PostgreSQL 的 `STUHELPER_FAVORITES_TEST_DSN` 后执行 `make check`。CI 使用最新稳定 PostgreSQL 元包。本模块没有访问真实账号或生产数据的脚本。
 
-迁移调用 `postgres.Migrate`，运行身份只取得 favorites schema 的 USAGE、表 SELECT/INSERT/UPDATE/DELETE 和序列 USAGE；requests 与 events 只允许 SELECT/INSERT。`CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计/幂等记录的 UPDATE/DELETE 权限。
+迁移调用 `postgres.Migrate`，运行身份只取得 favorites schema 的 USAGE、表 SELECT/INSERT/UPDATE/DELETE 和序列 USAGE；events 只允许 SELECT/INSERT，requests 另授予 DELETE 用于注销清理。`CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计记录的 UPDATE/DELETE 和幂等记录的 UPDATE 权限。
 
 后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。catalog、reviews 必需，resources 不可用时只有新增资料收藏受影响。
 
@@ -36,3 +36,5 @@ Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的�
 | FAV-02 | 旧记录分页失败后恢复、并发重试及取消后不重新导入 |
 
 OpenAPI 位于 contracts，使用 `make generate` 更新 Go 和 TypeScript SDK。后端组合测试验证真实 catalog、reviews、resources 与本模块；真实账号、Web/Admin 接入与部署另行验收。
+
+账号注销通过 CloseOwner 删除本人的收藏、收藏夹和幂等响应，并永久封存账号。删除与关闭标记在同一事务完成，重复调用不会重复审计，失败可重试，并发写入和旧收藏迁移不能恢复已删除记录。

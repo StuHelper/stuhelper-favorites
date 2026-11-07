@@ -83,7 +83,7 @@ func setup(t *testing.T) fixture {
 			t.Fatal(e)
 		}
 	}
-	if _, e = owner.Exec(`CREATE ROLE ` + role + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role + `;REVOKE UPDATE,DELETE ON favorites.events,favorites.requests FROM ` + role + `;CREATE SCHEMA foreign_data;CREATE TABLE foreign_data.secret(value text);`); e != nil {
+	if _, e = owner.Exec(`CREATE ROLE ` + role + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role + `;REVOKE UPDATE ON favorites.requests FROM ` + role + `;REVOKE UPDATE,DELETE ON favorites.events FROM ` + role + `;CREATE SCHEMA foreign_data;CREATE TABLE foreign_data.secret(value text);`); e != nil {
 		t.Fatal(e)
 	}
 	runtime, e := sql.Open("pgx", dsn+" dbname="+name+" user="+role)

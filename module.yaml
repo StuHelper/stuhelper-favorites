@@ -6,3 +6,5 @@ scenario_tests:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:
     - integration_test.go#TestLegacyImportResumesWithoutDuplicatesOrResurrection
+  PC-07:
+    - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection

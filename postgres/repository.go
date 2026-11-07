@@ -61,7 +61,7 @@ func (r *Repository) Ready(ctx context.Context) error {
 }
 func (r *Repository) CheckRuntime(ctx context.Context) error {
 	var unsafe bool
-	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb OR has_schema_privilege(current_user,'favorites','CREATE') OR has_table_privilege(current_user,'favorites.events','UPDATE,DELETE') OR has_table_privilege(current_user,'favorites.requests','UPDATE,DELETE') FROM pg_roles WHERE rolname=current_user`).Scan(&unsafe)
+	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb OR has_schema_privilege(current_user,'favorites','CREATE') OR has_table_privilege(current_user,'favorites.events','UPDATE,DELETE') OR has_table_privilege(current_user,'favorites.requests','UPDATE') FROM pg_roles WHERE rolname=current_user`).Scan(&unsafe)
 	if e != nil || unsafe {
 		return f.ErrUnavailable
 	}
@@ -78,6 +78,13 @@ func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.T
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.owners(owner_key) VALUES($1) ON CONFLICT DO NOTHING`, owner); e != nil {
 		return safe(e)
+	}
+	var closed bool
+	if e = tx.QueryRowContext(ctx, `SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1`, owner).Scan(&closed); e != nil {
+		return safe(e)
+	}
+	if closed {
+		return f.ErrForbidden
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.folders(owner_key,id,name,is_default,revision) SELECT $1,gen_random_uuid()::text,'',true,1 WHERE NOT EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND is_default)`, owner); e != nil {
 		return safe(e)
