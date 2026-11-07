@@ -1,6 +1,34 @@
 id: favorites
 version: 0.1.0
-kind: library
+kind: module
+api: 1
+critical: false
+requires:
+  - id: platform
+    api: 1
+  - id: catalog
+    api: 1
+optional:
+  - id: resources
+    api: 1
+  - id: identity
+    api: 1
+  - id: verification
+    api: 1
+  - id: reviews
+    api: 1
+capabilities:
+  - favorites.manage
+  - favorites.migrate
+capability_requires:
+  favorites.manage:
+    - id: identity
+      api: 1
+  favorites.migrate:
+    - id: identity
+      api: 1
+    - id: reviews
+      api: 1
 scenario_tests:
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
