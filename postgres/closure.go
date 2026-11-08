@@ -33,7 +33,7 @@ func (r *Repository) CloseOwner(ctx context.Context, owner, id string) error {
 			return safe(e)
 		}
 	}
-	if _, e = tx.ExecContext(ctx, `UPDATE favorites.owners SET closure_id=$2,import_done=true,import_after='' WHERE owner_key=$1`, owner, id); e != nil {
+	if _, e = tx.ExecContext(ctx, `UPDATE favorites.owners SET closure_id=$2 WHERE owner_key=$1`, owner, id); e != nil {
 		return safe(e)
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.events(owner_key,kind,operation) VALUES($1,'owner.close',$2)`, owner, id); e != nil {
