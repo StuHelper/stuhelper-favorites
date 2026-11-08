@@ -170,7 +170,7 @@ func (t *transaction) Items(filter f.Filter, pos f.Position) ([]f.Item, error) {
 		order = `title COLLATE "C",id`
 		page = `($5='' OR title COLLATE "C">$7 COLLATE "C" OR (title=$7 AND id>$5))`
 	}
-	rows, e := t.tx.QueryContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND ($2='' OR folder_id=$2) AND ($3='' OR kind=$3) AND ($4='' OR strpos(lower(title),lower($4))>0) AND `+page+` AND $6::timestamptz IS NOT NULL AND $7::text IS NOT NULL ORDER BY `+order+` LIMIT $8`, t.owner, filter.FolderID, filter.Kind, filter.Query, pos.ID, pos.CreatedAt, pos.Title, filter.Limit)
+	rows, e := t.tx.QueryContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND ($2='' OR folder_id=$2) AND ($3='' OR kind=$3) AND ($4='' OR strpos(lower(title),lower($4))>0) AND `+page+` AND $6::timestamptz IS NOT NULL AND $7::text IS NOT NULL AND ($9::text[] IS NULL OR target_id=ANY($9::text[])) ORDER BY `+order+` LIMIT $8`, t.owner, filter.FolderID, filter.Kind, filter.Query, pos.ID, pos.CreatedAt, pos.Title, filter.Limit, filter.TargetIDs)
 	if e != nil {
 		return nil, safe(e)
 	}

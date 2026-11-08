@@ -209,6 +209,9 @@ type ListFavoritesParams struct {
 	FolderId *string                  `form:"folder_id,omitempty" json:"folder_id,omitempty"`
 	Q        *string                  `form:"q,omitempty" json:"q,omitempty"`
 	Sort     *ListFavoritesParamsSort `form:"sort,omitempty" json:"sort,omitempty"`
+
+	// TargetIds 逗号分隔的目标 ID，必须同时提供 kind。最多 100 项，每项为 1 至 200 个 Unicode 码点且无首尾空白；空项和重复参数返回 400。重复 ID 按一个目标查询。仅返回本人的收藏记录，并与其他筛选条件取交集；沿用 limit 与 after 分页。
+	TargetIds *[]string `form:"target_ids,omitempty" json:"target_ids,omitempty"`
 }
 
 // ListFavoritesParamsKind defines parameters for ListFavorites.
@@ -903,6 +906,18 @@ func NewListFavoritesRequest(server string, params *ListFavoritesParams) (*http.
 		if params.Sort != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "sort", *params.Sort, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.TargetIds != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "target_ids", *params.TargetIds, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

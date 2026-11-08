@@ -507,6 +507,8 @@ export interface operations {
                 folder_id?: string;
                 q?: string;
                 sort?: "newest" | "name";
+                /** @description 逗号分隔的目标 ID，必须同时提供 kind。最多 100 项，每项为 1 至 200 个 Unicode 码点且无首尾空白；空项和重复参数返回 400。重复 ID 按一个目标查询。仅返回本人的收藏记录，并与其他筛选条件取交集；沿用 limit 与 after 分页。 */
+                target_ids?: string[];
             };
             header?: never;
             path?: never;

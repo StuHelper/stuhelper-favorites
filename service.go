@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -232,8 +233,21 @@ func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, erro
 	if f.Limit < 1 || f.Limit > 100 || f.Kind != "" && !kind(f.Kind) || f.Query != "" && !valid(f.Query, 100) || f.Sort != "newest" && f.Sort != "name" || f.FolderID != "" && !valid(f.FolderID, 200) {
 		return out, ErrInput
 	}
+	if f.TargetIDs != nil {
+		if len(f.TargetIDs) == 0 || len(f.TargetIDs) > 100 || f.Kind == "" {
+			return out, ErrInput
+		}
+		for _, target := range f.TargetIDs {
+			if !valid(target, 200) || strings.TrimSpace(target) != target {
+				return out, ErrInput
+			}
+		}
+		f.TargetIDs = slices.Clone(f.TargetIDs)
+		slices.Sort(f.TargetIDs)
+		f.TargetIDs = slices.Compact(f.TargetIDs)
+	}
 	pos := Position{}
-	hash := digest([]string{owner, f.FolderID, f.Kind, f.Query, f.Sort})
+	hash := digest([]any{owner, f.FolderID, f.Kind, f.Query, f.Sort, f.TargetIDs})
 	if f.After != "" {
 		if len(f.After) > 4096 {
 			return out, ErrInput

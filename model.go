@@ -58,6 +58,7 @@ type Removed struct {
 	Removed bool   `json:"removed"`
 }
 type Filter struct {
+	TargetIDs                          []string
 	FolderID, Kind, Query, Sort, After string
 	Limit                              int
 }

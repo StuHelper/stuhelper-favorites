@@ -1,5 +1,5 @@
 id: favorites
-version: 0.1.0
+version: 0.2.0
 kind: module
 api: 1
 critical: false
@@ -24,5 +24,7 @@ capability_requires:
 scenario_tests:
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
+  FAV-02:
+    - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection

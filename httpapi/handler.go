@@ -50,7 +50,15 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "folders":
 			out, e = h.Service.ListFolders(ctx, owner, q.Get("after"), limit)
 		case "items":
-			out, e = h.Service.List(ctx, owner, f.Filter{After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
+			var targets []string
+			if q.Has("target_ids") {
+				if len(q["target_ids"]) != 1 || len(q.Get("target_ids")) > 80100 {
+					failure(w, f.ErrInput)
+					return
+				}
+				targets = strings.Split(q.Get("target_ids"), ",")
+			}
+			out, e = h.Service.List(ctx, owner, f.Filter{TargetIDs: targets, After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
 		default:
 			e = f.ErrNotFound
 		}
