@@ -40,12 +40,6 @@ func (s *source) Resolve(ctx context.Context, owner, kind, id string) (string, e
 	return "Title " + id, nil
 }
 
-type emptyLegacy struct{}
-
-func (emptyLegacy) Page(context.Context, string, string, int) (f.LegacyPage, error) {
-	return f.LegacyPage{Items: []f.LegacyItem{}}, nil
-}
-
 type fixture struct {
 	s      *f.Service
 	source *source
@@ -102,7 +96,7 @@ func setup(t *testing.T) fixture {
 		t.Fatal("foreign schema readable")
 	}
 	src := &source{}
-	s := &f.Service{Repo: repo, Source: src, Legacy: emptyLegacy{}, Now: func() time.Time { return time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) }}
+	s := &f.Service{Repo: repo, Source: src, Now: func() time.Time { return time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) }}
 	return fixture{s, src, owner, repo}
 }
 func TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay(t *testing.T) {
@@ -304,109 +298,5 @@ func TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay(t *testing.T) {
 	}
 	if e = x.db.QueryRow(`SELECT count(*) FROM favorites.requests WHERE key='rollback'`).Scan(&count); e != nil || count != 0 {
 		t.Fatal(count, e)
-	}
-}
-
-type legacy struct {
-	fail  atomic.Bool
-	calls atomic.Int32
-}
-
-func (l *legacy) Page(ctx context.Context, owner, after string, limit int) (f.LegacyPage, error) {
-	l.calls.Add(1)
-	if after != "" && l.fail.Load() {
-		return f.LegacyPage{}, f.ErrUnavailable
-	}
-	p := f.LegacyPage{Items: []f.LegacyItem{}}
-	for i := 0; i < 105; i++ {
-		id := fmt.Sprintf("old-%03d", i)
-		if id <= after {
-			continue
-		}
-		p.Items = append(p.Items, f.LegacyItem{TargetID: id, Title: "Old " + id})
-		if len(p.Items) == limit {
-			p.Next = id
-			break
-		}
-	}
-	return p, nil
-}
-func TestLegacyImportResumesWithoutDuplicatesOrResurrection(t *testing.T) {
-	x := setup(t)
-	ctx := context.Background()
-	old := &legacy{}
-	old.fail.Store(true)
-	x.s.Legacy = old
-	if e := x.s.ImportLegacy(ctx, "alice"); !errors.Is(e, f.ErrUnavailable) {
-		t.Fatal(e)
-	}
-	var count int
-	if e := x.db.QueryRow(`SELECT count(*) FROM favorites.items WHERE owner_key='alice'`).Scan(&count); e != nil || count != 100 {
-		t.Fatal(count, e)
-	}
-	old.fail.Store(false)
-	var wg sync.WaitGroup
-	errs := make(chan error, 8)
-	for range 8 {
-		wg.Go(func() { errs <- x.s.ImportLegacy(ctx, "alice") })
-	}
-	wg.Wait()
-	close(errs)
-	for e := range errs {
-		if e != nil {
-			t.Fatal(e)
-		}
-	}
-	if e := x.db.QueryRow(`SELECT count(*) FROM favorites.items WHERE owner_key='alice'`).Scan(&count); e != nil || count != 105 {
-		t.Fatal(count, e)
-	}
-	calls := old.calls.Load()
-	x.source.state.Store(2)
-	old.fail.Store(true)
-	if e := x.s.SetCourseBookmark(ctx, "alice", "old-000", "remove-old", false); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); e != nil {
-		t.Fatal(e)
-	}
-	if old.calls.Load() != calls {
-		t.Fatal("completed import reread old store")
-	}
-	if e := x.db.QueryRow(`SELECT count(*) FROM favorites.items WHERE owner_key='alice' AND target_id='old-000'`).Scan(&count); e != nil || count != 0 {
-		t.Fatal("resurrected", count, e)
-	}
-	x.s.Legacy = nil
-	if e := x.s.ImportLegacy(ctx, "new-account"); !errors.Is(e, f.ErrUnavailable) {
-		t.Fatal("unknown legacy store treated as empty", e)
-	}
-}
-
-func TestReadsNeverInvokeUnavailableLegacyProvider(t *testing.T) {
-	x := setup(t)
-	ctx := context.Background()
-	old := &legacy{}
-	old.fail.Store(true)
-	x.s.Legacy = old
-	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := x.s.ListFolders(ctx, "alice", "", 100); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := x.s.CourseBookmarks(ctx, "alice", "", 100); e != nil {
-		t.Fatal(e)
-	}
-	if old.calls.Load() != 0 {
-		t.Fatal("read triggered legacy migration", old.calls.Load())
-	}
-	x.s.Legacy = nil
-	if _, e := x.s.CreateFolder(ctx, "alice", "folder", "Study"); e != nil {
-		t.Fatal(e)
-	}
-	if _, e := x.s.List(ctx, "alice", f.Filter{Limit: 100}); e != nil {
-		t.Fatal(e)
-	}
-	if e := x.s.ImportLegacy(ctx, "alice"); !errors.Is(e, f.ErrUnavailable) {
-		t.Fatal("missing provider falsely certified migration", e)
 	}
 }

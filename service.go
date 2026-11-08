@@ -17,7 +17,6 @@ import (
 type Service struct {
 	Repo   Repository
 	Source Source
-	Legacy Legacy
 	Now    func() time.Time
 }
 

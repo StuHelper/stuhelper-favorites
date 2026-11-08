@@ -1,5 +1,5 @@
 CREATE SCHEMA IF NOT EXISTS favorites;
-CREATE TABLE IF NOT EXISTS favorites.owners(owner_key text PRIMARY KEY,import_after text NOT NULL DEFAULT '',import_done boolean NOT NULL DEFAULT false);
+CREATE TABLE IF NOT EXISTS favorites.owners(owner_key text PRIMARY KEY,closure_id text);
 CREATE TABLE IF NOT EXISTS favorites.folders(owner_key text NOT NULL REFERENCES favorites.owners(owner_key),id text NOT NULL,name text NOT NULL CHECK(char_length(name)<=20),is_default boolean NOT NULL,revision bigint NOT NULL CHECK(revision>0),PRIMARY KEY(owner_key,id));
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_folder_names ON favorites.folders(owner_key,name COLLATE "C");
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_one_default ON favorites.folders(owner_key) WHERE is_default;
@@ -13,4 +13,3 @@ CREATE TABLE IF NOT EXISTS favorites.events(id bigint GENERATED ALWAYS AS IDENTI
 REVOKE ALL ON SCHEMA favorites FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 
-ALTER TABLE favorites.owners ADD COLUMN IF NOT EXISTS closure_id text;

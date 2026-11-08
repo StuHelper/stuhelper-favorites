@@ -72,20 +72,6 @@ type Position struct {
 type Source interface {
 	Resolve(context.Context, string, string, string) (string, error)
 }
-type LegacyItem struct {
-	TargetID string
-	Title    string
-}
-type LegacyPage struct {
-	Items []LegacyItem
-	Next  string
-}
-
-// Legacy seals the old owner's writes before reading a stable page. An absent provider
-// is unavailable, never evidence that the old store is empty.
-type Legacy interface {
-	Page(context.Context, string, string, int) (LegacyPage, error)
-}
 type Repository interface {
 	Transaction(context.Context, string, func(Transaction) error) error
 }
@@ -103,6 +89,4 @@ type Transaction interface {
 	Items(Filter, Position) ([]Item, error)
 	SaveItem(Item) error
 	DeleteItem(string) error
-	ImportProgress() (string, bool, error)
-	AdvanceImport(string, string, bool) error
 }

@@ -14,14 +14,6 @@
 
 写操作按账号串行，业务变化、幂等结果与审计事件在一个事务提交。同键不同内容或过期修订返回 409。目标读取最多 3 秒，失败不保存收藏。幂等结果保存在本模块，前端不得复用已经使用过的键。
 
-## 旧课程收藏迁移
-
-Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的分页。用户显式调用 POST /api/v1/favorites/legacy-import，每次最多迁移 2,000 条并保存分页进度。依赖不可用或尚未完成时返回 503，显式重试继续迁移。普通读写请求不调用旧库。
-
-迁入默认夹的旧记录保留目标 ID。目录已删除的对象允许名称为空。迁移完成后不再读取旧库。原 reviews HTTP 入口转发到本模块，尚在有效期内的旧幂等回执保留原结果，已取消记录不会因旧请求重试重新出现。
-
-旧封存记录不再授予名称读取权限，reviews 通过本模块公开接口核对当前课程收藏。仅当旧客户端全部接入新接口并完成各账号迁移后，才能另行移除旧转发入口与封存数据。
-
 ## 检查与运行
 
 按锁文件执行 `make setup`，设置独立 PostgreSQL 的 `STUHELPER_FAVORITES_TEST_DSN` 后执行 `make check`。CI 使用最新稳定 PostgreSQL 元包。本模块没有访问真实账号或生产数据的脚本。
@@ -30,7 +22,7 @@ Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的�
 
 `CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计记录的 UPDATE/DELETE 和幂等记录的 UPDATE 权限。
 
-后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。reviews 只影响显式迁移。本人列表和收藏夹管理不依赖 reviews，resources 不可用时只有新增资料收藏受影响。
+后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。本人列表和收藏夹管理使用本模块数据，resources 不可用时只有新增资料收藏受影响。
 
 | 场景 | 实际检查 |
 | --- | --- |
@@ -39,4 +31,4 @@ Legacy 接口先封存 reviews 中当前账号的旧写入，再返回稳定的�
 
 OpenAPI 位于 contracts，使用 `make generate` 更新 Go 和 TypeScript SDK。后端组合测试验证真实 catalog、reviews、resources 与本模块；真实账号、Web/Admin 接入与部署另行验收。
 
-账号注销通过 CloseOwner 删除本人的收藏、收藏夹和幂等响应，并永久封存账号。删除与关闭标记在同一事务完成，重复调用不会重复审计，失败可重试，并发写入和旧收藏迁移不能恢复已删除记录。
+账号注销通过 CloseOwner 删除本人的收藏、收藏夹和幂等响应，并永久封存账号。删除与关闭标记在同一事务完成，重复调用不会重复审计，失败可重试，并发写入不能恢复已删除记录。

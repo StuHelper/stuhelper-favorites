@@ -15,25 +15,14 @@ optional:
     api: 1
   - id: verification
     api: 1
-  - id: reviews
-    api: 1
 capabilities:
   - favorites.manage
-  - favorites.migrate
 capability_requires:
   favorites.manage:
     - id: identity
       api: 1
-  favorites.migrate:
-    - id: identity
-      api: 1
-    - id: reviews
-      api: 1
 scenario_tests:
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
-  FAV-02:
-    - integration_test.go#TestReadsNeverInvokeUnavailableLegacyProvider
-    - integration_test.go#TestLegacyImportResumesWithoutDuplicatesOrResurrection
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection

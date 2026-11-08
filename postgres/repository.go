@@ -193,33 +193,6 @@ func (t *transaction) DeleteItem(id string) error {
 	_, e := t.tx.ExecContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=$2`, t.owner, id)
 	return safe(e)
 }
-func (t *transaction) ImportProgress() (string, bool, error) {
-	var after string
-	var done bool
-	e := t.tx.QueryRowContext(t.ctx, `SELECT import_after,import_done FROM favorites.owners WHERE owner_key=$1`, t.owner).Scan(&after, &done)
-	return after, done, safe(e)
-}
-func (t *transaction) AdvanceImport(old, next string, done bool) error {
-	_, e := t.tx.ExecContext(t.ctx, `UPDATE favorites.owners SET import_after=$3,import_done=$4 WHERE owner_key=$1 AND import_after=$2`, t.owner, old, next, done)
-	return safe(e)
-}
-func (r *Repository) CourseBookmarks(ctx context.Context, owner, after string, limit int) ([]string, error) {
-	rows, e := r.DB.QueryContext(ctx, `SELECT target_id FROM favorites.items WHERE owner_key=$1 AND kind='course' AND target_id>$2 ORDER BY target_id LIMIT $3`, owner, after, limit)
-	if e != nil {
-		return nil, safe(e)
-	}
-	defer rows.Close()
-	out := []string{}
-	for rows.Next() {
-		var v string
-		if e = rows.Scan(&v); e != nil {
-			return nil, safe(e)
-		}
-		out = append(out, v)
-	}
-	return out, safe(rows.Err())
-}
-
 func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []string) ([]string, error) {
 	rows, e := r.DB.QueryContext(ctx, `SELECT DISTINCT target_id FROM favorites.items WHERE owner_key=$1 AND kind='course' AND target_id=ANY($2::text[]) ORDER BY target_id`, owner, ids)
 	if e != nil {
