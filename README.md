@@ -34,3 +34,5 @@
 OpenAPI 位于 contracts，使用 `make generate` 更新 Go 和 TypeScript SDK。后端组合测试验证真实 catalog、reviews、resources 与本模块；真实账号、Web/Admin 接入与部署另行验收。
 
 账号注销通过 CloseOwner 删除本人的收藏、收藏夹和幂等响应，并永久封存账号。删除与关闭标记在同一事务完成，重复调用不会重复审计，失败可重试，并发写入不能恢复已删除记录。
+
+热门活动来源、日快照、计数规则与清理接口见[活动来源规格](docs/spec/activity.md)。

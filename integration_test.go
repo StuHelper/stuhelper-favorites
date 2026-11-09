@@ -24,20 +24,24 @@ type source struct {
 	calls atomic.Int32
 }
 
-func (s *source) Resolve(ctx context.Context, owner, kind, id string) (string, error) {
+func (s *source) Resolve(ctx context.Context, owner, kind, id string) (f.ResolvedTarget, error) {
 	s.calls.Add(1)
 	if _, ok := ctx.Deadline(); !ok {
-		return "", errors.New("no timeout")
+		return f.ResolvedTarget{}, errors.New("no timeout")
 	}
 	switch s.state.Load() {
 	case 1:
-		return "", f.ErrForbidden
+		return f.ResolvedTarget{}, f.ErrForbidden
 	case 2:
-		return "", f.ErrUnavailable
+		return f.ResolvedTarget{}, f.ErrUnavailable
 	case 3:
-		return "", context.DeadlineExceeded
+		return f.ResolvedTarget{}, context.DeadlineExceeded
 	}
-	return "Title " + id, nil
+	canonical := id
+	if id == "old-alias" {
+		canonical = "course"
+	}
+	return f.ResolvedTarget{ID: canonical, Kind: kind, Title: "Title " + id}, nil
 }
 
 type fixture struct {

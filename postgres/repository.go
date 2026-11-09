@@ -9,6 +9,7 @@ import (
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"time"
 )
 
 //go:embed schema.sql
@@ -150,11 +151,11 @@ func (t *transaction) DeleteFolder(id, defaultID string) error {
 	return safe(e)
 }
 
-const columns = `id,kind,target_id,title,folder_id,revision,created_at`
+const columns = `id,kind,target_id,title,folder_id,revision,created_at,canonical_target_id`
 
 func item(row scanner) (f.Item, error) {
 	var v f.Item
-	e := row.Scan(&v.ID, &v.Kind, &v.TargetID, &v.Title, &v.FolderID, &v.Revision, &v.CreatedAt)
+	e := row.Scan(&v.ID, &v.Kind, &v.TargetID, &v.Title, &v.FolderID, &v.Revision, &v.CreatedAt, &v.CanonicalTargetID)
 	return v, safe(e)
 }
 func (t *transaction) Item(id string) (f.Item, error) {
@@ -186,12 +187,29 @@ func (t *transaction) Items(filter f.Filter, pos f.Position) ([]f.Item, error) {
 	return out, safe(rows.Err())
 }
 func (t *transaction) SaveItem(v f.Item) error {
-	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(owner_key,id) DO UPDATE SET folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt)
-	return safe(e)
+	var exists bool
+	if e := t.tx.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM favorites.items WHERE owner_key=$1 AND id=$2)`, t.owner, v.ID).Scan(&exists); e != nil {
+		return safe(e)
+	}
+	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(owner_key,id) DO UPDATE SET folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt, v.CanonicalTargetID)
+	if e != nil {
+		return safe(e)
+	}
+	if !exists && (v.Kind == "course" || v.Kind == "teacher") {
+		return t.changeActivity(v.Kind, v.CanonicalTargetID, "", v.CreatedAt, 1, 0, nil, v.CreatedAt)
+	}
+	return nil
 }
-func (t *transaction) DeleteItem(id string) error {
-	_, e := t.tx.ExecContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=$2`, t.owner, id)
-	return safe(e)
+func (t *transaction) DeleteItem(id string, at time.Time) error {
+	var kind, target string
+	e := t.tx.QueryRowContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=$2 RETURNING kind,canonical_target_id`, t.owner, id).Scan(&kind, &target)
+	if e != nil {
+		return safe(e)
+	}
+	if kind == "course" || kind == "teacher" {
+		return t.changeActivity(kind, target, "", at, -1, 0, nil, at)
+	}
+	return nil
 }
 func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []string) ([]string, error) {
 	rows, e := r.DB.QueryContext(ctx, `SELECT DISTINCT target_id FROM favorites.items WHERE owner_key=$1 AND kind='course' AND target_id=ANY($2::text[]) ORDER BY target_id`, owner, ids)

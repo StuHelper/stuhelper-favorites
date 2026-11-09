@@ -21,7 +21,14 @@ capability_requires:
   favorites.manage:
     - id: identity
       api: 1
+specifications:
+  - docs/spec/activity.md
 scenario_tests:
+  FAV-ACTIVITY-01:
+    - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
+    - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
+    - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
+    - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:

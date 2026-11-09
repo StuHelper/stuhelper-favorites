@@ -178,14 +178,14 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		}
 		call, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		title, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
+		resolved, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
 		if e != nil {
 			return Item{}, e
 		}
-		if !valid(title, 500) {
+		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != in.Kind {
 			return Item{}, ErrUnavailable
 		}
-		v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: title, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
+		v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
 		return v, tx.SaveItem(v)
 	})
 }
@@ -221,7 +221,7 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 		if v.Revision != revision {
 			return Removed{}, ErrConflict
 		}
-		return Removed{item, true}, tx.DeleteItem(item)
+		return Removed{item, true}, tx.DeleteItem(item, s.now())
 	})
 }
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {

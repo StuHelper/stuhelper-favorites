@@ -24,13 +24,14 @@ type Folder struct {
 	Revision  int64  `json:"revision"`
 }
 type Item struct {
-	ID        string    `json:"id"`
-	Kind      string    `json:"kind"`
-	TargetID  string    `json:"target_id"`
-	Title     string    `json:"title"`
-	FolderID  string    `json:"folder_id"`
-	Revision  int64     `json:"revision"`
-	CreatedAt time.Time `json:"created_at"`
+	CanonicalTargetID string    `json:"-"`
+	ID                string    `json:"id"`
+	Kind              string    `json:"kind"`
+	TargetID          string    `json:"target_id"`
+	Title             string    `json:"title"`
+	FolderID          string    `json:"folder_id"`
+	Revision          int64     `json:"revision"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 type Folders struct {
 	Items []Folder `json:"items"`
@@ -70,8 +71,10 @@ type Position struct {
 }
 
 // Source must enforce current admission and target visibility before returning a minimal title.
+// ResolvedTarget includes the current canonical ID supplied by the owning module.
+type ResolvedTarget struct{ ID, Kind, Title string }
 type Source interface {
-	Resolve(context.Context, string, string, string) (string, error)
+	Resolve(context.Context, string, string, string) (ResolvedTarget, error)
 }
 type Repository interface {
 	Transaction(context.Context, string, func(Transaction) error) error
@@ -89,5 +92,5 @@ type Transaction interface {
 	Target(string, string) (Item, error)
 	Items(Filter, Position) ([]Item, error)
 	SaveItem(Item) error
-	DeleteItem(string) error
+	DeleteItem(string, time.Time) error
 }
