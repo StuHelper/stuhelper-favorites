@@ -1,0 +1,37 @@
+id: favorites
+version: 0.2.0
+kind: module
+api: 1
+critical: false
+requires:
+  - id: platform
+    api: 1
+  - id: catalog
+    api: 1
+optional:
+  - id: resources
+    api: 1
+  - id: identity
+    api: 1
+  - id: verification
+    api: 1
+capabilities:
+  - favorites.manage
+capability_requires:
+  favorites.manage:
+    - id: identity
+      api: 1
+specifications:
+  - docs/spec/activity.md
+scenario_tests:
+  FAV-ACTIVITY-01:
+    - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
+    - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
+    - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
+    - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
+  FAV-01:
+    - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
+  FAV-02:
+    - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
+  PC-07:
+    - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
