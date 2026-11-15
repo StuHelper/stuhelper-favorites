@@ -16,6 +16,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 -- Provider-owned daily aggregates and immutable versions used by rebuild cursors.
 CREATE TABLE IF NOT EXISTS favorites.activity_buckets(id text PRIMARY KEY,kind text NOT NULL CHECK(kind IN('course','teacher')),target_id text NOT NULL,school_id text NOT NULL,day date NOT NULL,first_count bigint NOT NULL,second_count bigint NOT NULL,revision bigint NOT NULL CHECK(revision>0),visible boolean NOT NULL,data jsonb NOT NULL DEFAULT '{}',UNIQUE(kind,target_id,day));
 CREATE INDEX IF NOT EXISTS favorites_activity_target ON favorites.activity_buckets(kind,target_id,day);
+CREATE INDEX IF NOT EXISTS favorites_activity_window ON favorites.activity_buckets(kind,day,target_id) INCLUDE(first_count) WHERE visible;
 CREATE TABLE IF NOT EXISTS favorites.activity_history(id text NOT NULL,revision bigint NOT NULL,day date NOT NULL,data jsonb NOT NULL,recorded_xid xid8 NOT NULL DEFAULT pg_current_xact_id(),PRIMARY KEY(id,revision));
 CREATE INDEX IF NOT EXISTS favorites_activity_history_page ON favorites.activity_history(id COLLATE "C",revision DESC);
 CREATE INDEX IF NOT EXISTS favorites_activity_history_day ON favorites.activity_history(day,id,revision);

@@ -1,5 +1,5 @@
 id: favorites
-version: 0.2.0
+version: 0.2.1
 kind: module
 api: 1
 critical: false
@@ -35,3 +35,5 @@ scenario_tests:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
+  FAV-UI-01:
+    - activity_totals_test.go#TestUIDirectoryActivityTotalsRespectWindowAndDailyNet
