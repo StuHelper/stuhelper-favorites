@@ -59,7 +59,7 @@ func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in 
 		saved, b, e := tx.Replay(key)
 		if e == nil {
 			if saved != h {
-				return ErrConflict
+				return WithReason(ErrConflict, ReasonIdempotencyConflict)
 			}
 			if json.Unmarshal(b, &out) != nil {
 				return ErrUnavailable
@@ -105,7 +105,7 @@ func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, i
 			return v, e
 		}
 		if v.Revision != in.Revision {
-			return v, ErrConflict
+			return v, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		v.Name = in.Name
 		v.Revision++
@@ -122,10 +122,10 @@ func (s *Service) DeleteFolder(ctx context.Context, owner, key, folder string, r
 			return Removed{}, e
 		}
 		if v.Default {
-			return Removed{}, ErrForbidden
+			return Removed{}, WithReason(ErrForbidden, ReasonDefaultFolderProtected)
 		}
 		if v.Revision != revision {
-			return Removed{}, ErrConflict
+			return Removed{}, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		d, e := tx.DefaultFolder()
 		if e != nil {
@@ -157,7 +157,7 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		old, e := tx.Target(in.Kind, in.TargetID)
 		if e == nil {
 			if in.FolderID != "" && in.FolderID != old.FolderID {
-				return old, ErrConflict
+				return old, WithReason(ErrConflict, ReasonFolderMismatch)
 			}
 			return old, nil
 		}
@@ -180,6 +180,9 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		defer cancel()
 		resolved, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
 		if e != nil {
+			if errors.Is(e, ErrForbidden) && ErrorReason(e) == "" {
+				return Item{}, WithReason(ErrForbidden, ReasonAdmissionRequired)
+			}
 			return Item{}, e
 		}
 		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != in.Kind {
@@ -199,7 +202,7 @@ func (s *Service) Move(ctx context.Context, owner, key, item string, in Move) (I
 			return v, e
 		}
 		if v.Revision != in.Revision {
-			return v, ErrConflict
+			return v, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		if _, e = tx.Folder(in.FolderID); e != nil {
 			return v, e
@@ -219,9 +222,44 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 			return Removed{}, e
 		}
 		if v.Revision != revision {
-			return Removed{}, ErrConflict
+			return Removed{}, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		return Removed{item, true}, tx.DeleteItem(item, s.now())
+	})
+}
+func (s *Service) Refresh(ctx context.Context, owner, key, item string) (Item, error) {
+	if !valid(item, 200) {
+		return Item{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "item.refresh", item, func(tx Transaction) (Item, error) {
+		v, e := tx.Item(item)
+		if e != nil {
+			return Item{}, e
+		}
+		if s.Source == nil {
+			return Item{}, ErrUnavailable
+		}
+		call, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		resolved, e := s.Source.Resolve(call, owner, v.Kind, v.TargetID)
+		if errors.Is(e, ErrNotFound) || errors.Is(e, ErrForbidden) {
+			return v, nil
+		}
+		if e != nil {
+			if ctx.Err() != nil {
+				return Item{}, e
+			}
+			return Item{}, ErrUnavailable
+		}
+		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != v.Kind {
+			return Item{}, ErrUnavailable
+		}
+		if resolved.Title == v.Title {
+			return v, nil
+		}
+		v.Title = resolved.Title
+		v.Revision++
+		return v, tx.SaveItem(v)
 	})
 }
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {

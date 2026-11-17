@@ -106,6 +106,11 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.Remove(ctx, owner, key, parts[1], in.Revision)
+		case len(parts) == 3 && parts[0] == "items" && parts[2] == "refresh":
+			if decodeEmpty(w, r) != nil {
+				return
+			}
+			out, e = h.Service.Refresh(ctx, owner, key, parts[1])
 		default:
 			e = f.ErrNotFound
 		}
@@ -134,6 +139,28 @@ func decode(w http.ResponseWriter, r *http.Request, v any) error {
 	}
 	return e
 }
+func decodeEmpty(w http.ResponseWriter, r *http.Request) error {
+	if r.Body == nil {
+		return nil
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	decoder.DisallowUnknownFields()
+	var empty struct{}
+	e := decoder.Decode(&empty)
+	if e == io.EOF {
+		return nil
+	}
+	if e == nil {
+		var extra any
+		if decoder.Decode(&extra) != io.EOF {
+			e = f.ErrInput
+		}
+	}
+	if e != nil {
+		failure(w, f.ErrInput)
+	}
+	return e
+}
 func failure(w http.ResponseWriter, e error) {
 	code, status := "unavailable", http.StatusServiceUnavailable
 	switch {
@@ -148,6 +175,10 @@ func failure(w http.ResponseWriter, e error) {
 	case errors.Is(e, f.ErrConflict):
 		code, status = "conflict", 409
 	}
+	out := struct {
+		Code   string `json:"code"`
+		Reason string `json:"reason,omitempty"`
+	}{Code: code, Reason: string(f.ErrorReason(e))}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"code": code})
+	_ = json.NewEncoder(w).Encode(out)
 }

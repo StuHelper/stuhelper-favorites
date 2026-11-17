@@ -85,7 +85,7 @@ func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.T
 		return safe(e)
 	}
 	if closed {
-		return f.ErrForbidden
+		return f.WithReason(f.ErrForbidden, f.ReasonOwnerClosed)
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.folders(owner_key,id,name,is_default,revision) SELECT $1,gen_random_uuid()::text,'',true,1 WHERE NOT EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND is_default)`, owner); e != nil {
 		return safe(e)
@@ -141,6 +141,10 @@ func (t *transaction) Folders(after string, limit int) ([]f.Folder, error) {
 }
 func (t *transaction) SaveFolder(v f.Folder) error {
 	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.folders VALUES($1,$2,$3,$4,$5) ON CONFLICT(owner_key,id) DO UPDATE SET name=EXCLUDED.name,revision=EXCLUDED.revision`, t.owner, v.ID, v.Name, v.Default, v.Revision)
+	var p *pgconn.PgError
+	if errors.As(e, &p) && p.Code == "23505" && p.ConstraintName == "favorites_folder_names" {
+		return f.WithReason(f.ErrConflict, f.ReasonFolderNameConflict)
+	}
 	return safe(e)
 }
 func (t *transaction) DeleteFolder(id, defaultID string) error {
@@ -191,7 +195,7 @@ func (t *transaction) SaveItem(v f.Item) error {
 	if e := t.tx.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM favorites.items WHERE owner_key=$1 AND id=$2)`, t.owner, v.ID).Scan(&exists); e != nil {
 		return safe(e)
 	}
-	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(owner_key,id) DO UPDATE SET folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt, v.CanonicalTargetID)
+	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(owner_key,id) DO UPDATE SET title=EXCLUDED.title,folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt, v.CanonicalTargetID)
 	if e != nil {
 		return safe(e)
 	}
