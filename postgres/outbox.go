@@ -2,11 +2,34 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	m "github.com/StuHelper/stuhelper-favorites"
+	"time"
 )
 
-var _ m.OutboxReader = (*Repository)(nil)
+var (
+	_ m.OutboxReader   = (*Repository)(nil)
+	_ m.OutboxObserver = (*Repository)(nil)
+)
+
+func (r *Repository) OutboxLag(ctx context.Context) (m.OutboxLag, error) {
+	var count int64
+	var oldest sql.NullTime
+	e := r.DB.QueryRowContext(ctx, `SELECT count(*),min(created_at) FROM favorites.outbox WHERE sent_at IS NULL`).Scan(&count, &oldest)
+	if e != nil {
+		return m.OutboxLag{}, safe(e)
+	}
+	if count == 0 || !oldest.Valid {
+		return m.OutboxLag{}, nil
+	}
+	at := oldest.Time.UTC()
+	return m.OutboxLag{
+		PendingCount:    count,
+		OldestPendingAt: at,
+		OldestAge:       max(0, time.Now().UTC().Sub(at)),
+	}, nil
+}
 
 func (r *Repository) PendingOutbox(ctx context.Context, limit int, excludeSubjects []string) ([]m.Envelope, error) {
 	if limit < 1 || limit > 100 || len(excludeSubjects) > 1000 {
@@ -50,7 +73,11 @@ func (t *transaction) saveEnvelope(v m.Envelope) error {
 	if e != nil {
 		return m.ErrInput
 	}
-	if _, e = t.tx.ExecContext(t.ctx, `INSERT INTO favorites.outbox(id,data) VALUES($1,$2)`, v.ID, raw); e != nil {
+	createdAt := v.Time
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	if _, e = t.tx.ExecContext(t.ctx, `INSERT INTO favorites.outbox(id,data,created_at) VALUES($1,$2,$3)`, v.ID, raw, createdAt.UTC()); e != nil {
 		return safe(e)
 	}
 	_, e = t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, m.OutboxChannel)

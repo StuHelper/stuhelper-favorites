@@ -12,7 +12,9 @@
 
 读接口每页最多 100 条。收藏支持种类、目标 ID、收藏夹和名称筛选，按新增时间或名称排序，游标绑定筛选条件与账号。收藏夹返回当前总条数，条数不受列表筛选影响。
 
-`GET /api/v1/favorites/items?kind=course&target_ids=course-a,course-b` 返回本人对应收藏。`target_ids` 最多 100 项，必须同时提供 `kind`，空项返回 400。重复 ID 按一个目标查询，分页及其他筛选同时生效。
+`GET /api/v1/favorites/items?kind=course&target_ids=course-a,course-b` 返回本人对应收藏。`target_ids` 最多 100 项，先按字面逗号切分再逐项解码，必须同时提供 `kind`，空项返回 400。
+
+进程内端口 `Service.CourseReferences` 按 1 至 100 项边界返回本人已收藏的课程目标 ID 有序去重集合。
 
 写操作按账号串行，业务变化、幂等结果与审计事件在一个事务提交。同键不同内容或过期修订返回 409。目标读取最多 3 秒，失败不保存收藏。幂等结果保存在本模块，前端不得复用已经使用过的键。
 

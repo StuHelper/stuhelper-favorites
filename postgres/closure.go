@@ -74,7 +74,7 @@ func (t *transaction) removeOwnerActivity() error {
 		return safe(e)
 	}
 	for _, v := range items {
-		if e = t.changeActivity(v.kind, v.target, "", at, -v.n, 0, nil, at); e != nil {
+		if e = t.changeActivity(v.kind, v.target, at, -v.n, at); e != nil {
 			return e
 		}
 	}

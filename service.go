@@ -180,6 +180,9 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		defer cancel()
 		resolved, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
 		if e != nil {
+			if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
+				return Item{}, ErrUnavailable
+			}
 			return Item{}, e
 		}
 		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != in.Kind {

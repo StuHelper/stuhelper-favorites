@@ -10,25 +10,22 @@ import (
 
 // Bucket row locks serialize independent actors. Callers update keys in ID order
 // when an operation affects multiple buckets, avoiding inverse lock acquisition.
-func (t *transaction) changeActivity(kind, target, school string, day time.Time, firstDelta, secondDelta int64, forcedVisibility *bool, at time.Time) error {
+func (t *transaction) changeActivity(kind, target string, day time.Time, delta int64, at time.Time) error {
 	day = day.UTC().Truncate(24 * time.Hour)
 	id := m.ActivityID(kind, target, day)
 	if _, _, e := m.ParseActivityID(id); e != nil {
 		return e
 	}
-	var first, second, revision int64
-	e := t.tx.QueryRowContext(t.ctx, `INSERT INTO favorites.activity_buckets(id,kind,target_id,school_id,day,first_count,second_count,revision,visible) VALUES($1,$2,$3,$4,$5,$6,$7,1,false) ON CONFLICT(id) DO UPDATE SET first_count=favorites.activity_buckets.first_count+EXCLUDED.first_count,second_count=favorites.activity_buckets.second_count+EXCLUDED.second_count,revision=favorites.activity_buckets.revision+1 RETURNING first_count,second_count,revision`, id, kind, target, school, day, firstDelta, secondDelta).Scan(&first, &second, &revision)
+	var first, revision int64
+	e := t.tx.QueryRowContext(t.ctx, `INSERT INTO favorites.activity_buckets(id,kind,target_id,day,first_count,revision,visible) VALUES($1,$2,$3,$4,$5,1,false) ON CONFLICT(id) DO UPDATE SET first_count=favorites.activity_buckets.first_count+EXCLUDED.first_count,revision=favorites.activity_buckets.revision+1 RETURNING first_count,revision`, id, kind, target, day, delta).Scan(&first, &revision)
 	if e != nil {
 		return safe(e)
 	}
 	first = max(0, first)
-	if first > 1000000000 || second < 0 || second > 1000000000 {
+	if first > 1000000000 {
 		return m.ErrUnavailable
 	}
-	d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day.Format(time.DateOnly), Revision: revision, Visible: first > 0 || second > 0, Metrics: map[string]int64{"favorites": first}}
-	if forcedVisibility != nil {
-		d.Visible = *forcedVisibility && d.Visible
-	}
+	d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day.Format(time.DateOnly), Revision: revision, Visible: first > 0, Metrics: map[string]int64{"favorites": first}}
 	data, e := json.Marshal(d)
 	if e != nil {
 		return m.ErrUnavailable

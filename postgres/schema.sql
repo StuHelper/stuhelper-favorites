@@ -14,7 +14,8 @@ REVOKE ALL ON SCHEMA favorites FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 
 -- Provider-owned daily aggregates and immutable versions used by rebuild cursors.
-CREATE TABLE IF NOT EXISTS favorites.activity_buckets(id text PRIMARY KEY,kind text NOT NULL CHECK(kind IN('course','teacher')),target_id text NOT NULL,school_id text NOT NULL,day date NOT NULL,first_count bigint NOT NULL,second_count bigint NOT NULL,revision bigint NOT NULL CHECK(revision>0),visible boolean NOT NULL,data jsonb NOT NULL DEFAULT '{}',UNIQUE(kind,target_id,day));
+CREATE TABLE IF NOT EXISTS favorites.activity_buckets(id text PRIMARY KEY,kind text NOT NULL CHECK(kind IN('course','teacher')),target_id text NOT NULL,day date NOT NULL,first_count bigint NOT NULL,revision bigint NOT NULL CHECK(revision>0),visible boolean NOT NULL,data jsonb NOT NULL DEFAULT '{}',UNIQUE(kind,target_id,day));
+ALTER TABLE favorites.activity_buckets DROP COLUMN IF EXISTS school_id,DROP COLUMN IF EXISTS second_count;
 CREATE INDEX IF NOT EXISTS favorites_activity_target ON favorites.activity_buckets(kind,target_id,day);
 CREATE INDEX IF NOT EXISTS favorites_activity_window ON favorites.activity_buckets(kind,day,target_id) INCLUDE(first_count) WHERE visible;
 CREATE TABLE IF NOT EXISTS favorites.activity_history(id text NOT NULL,revision bigint NOT NULL,day date NOT NULL,data jsonb NOT NULL,recorded_xid xid8 NOT NULL DEFAULT pg_current_xact_id(),PRIMARY KEY(id,revision));
@@ -28,6 +29,7 @@ CREATE OR REPLACE TRIGGER invalidate_activity AFTER UPDATE OR DELETE ON favorite
 CREATE OR REPLACE TRIGGER truncate_activity AFTER TRUNCATE ON favorites.activity_history FOR EACH STATEMENT EXECUTE FUNCTION favorites.invalidate_activity();
 REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favorites.activity_retention FROM PUBLIC;
 
-CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,sent_at timestamptz);
+CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,created_at timestamptz NOT NULL DEFAULT now(),sent_at timestamptz);
+ALTER TABLE favorites.outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS favorites_outbox_pending ON favorites.outbox((data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq) WHERE sent_at IS NULL;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;

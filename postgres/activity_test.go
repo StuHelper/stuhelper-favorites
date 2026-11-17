@@ -35,13 +35,13 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 	}
 	cfg.Database = name
 	db := stdlib.OpenDB(*cfg)
-	if _, e = db.Exec(Schema); e != nil {
+	if e = Migrate(context.Background(), db); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN`); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role); e != nil {
+	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role + `;REVOKE UPDATE ON favorites.requests FROM ` + role + `;REVOKE UPDATE,DELETE ON favorites.events FROM ` + role); e != nil {
 		t.Fatal(e)
 	}
 	cfg.User = role
@@ -57,14 +57,18 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 		}
 		admin.Close()
 	})
-	return &Repository{DB: runtime}, db
+	repo := &Repository{DB: runtime}
+	if e = repo.CheckRuntime(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	return repo, db
 }
 func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	repo, db := activityDatabase(t)
 	ctx := context.Background()
 	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
 	change := func(tx *sql.Tx, id string, delta int64) error {
-		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, "school", day, delta, 0, nil, day)
+		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, day, delta, day)
 	}
 	apply := func(id string, delta int64) error {
 		tx, e := repo.DB.BeginTx(ctx, nil)
