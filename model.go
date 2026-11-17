@@ -46,6 +46,10 @@ type Add struct {
 	TargetID string `json:"target_id"`
 	FolderID string `json:"folder_id,omitempty"`
 }
+type Target struct {
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
+}
 type Rename struct {
 	Name     string `json:"name"`
 	Revision int64  `json:"revision"`

@@ -224,6 +224,64 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 		return Removed{item, true}, tx.DeleteItem(item, s.now())
 	})
 }
+func (s *Service) SetTarget(ctx context.Context, owner, key string, in Add) (Item, error) {
+	if !kind(in.Kind) || !valid(in.TargetID, 200) || strings.TrimSpace(in.TargetID) != in.TargetID || in.FolderID != "" && !valid(in.FolderID, 200) {
+		return Item{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "target.set", in, func(tx Transaction) (Item, error) {
+		var folder Folder
+		var e error
+		if in.FolderID == "" {
+			folder, e = tx.DefaultFolder()
+		} else {
+			folder, e = tx.Folder(in.FolderID)
+		}
+		if e != nil {
+			return Item{}, e
+		}
+		old, e := tx.Target(in.Kind, in.TargetID)
+		if e == nil {
+			if old.FolderID == folder.ID {
+				return old, nil
+			}
+			old.FolderID = folder.ID
+			old.Revision++
+			return old, tx.SaveItem(old)
+		}
+		if !errors.Is(e, ErrNotFound) {
+			return Item{}, e
+		}
+		if s.Source == nil {
+			return Item{}, ErrUnavailable
+		}
+		call, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		resolved, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
+		if e != nil {
+			return Item{}, e
+		}
+		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != in.Kind {
+			return Item{}, ErrUnavailable
+		}
+		v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
+		return v, tx.SaveItem(v)
+	})
+}
+func (s *Service) RemoveTarget(ctx context.Context, owner, key string, in Target) (Removed, error) {
+	if !kind(in.Kind) || !valid(in.TargetID, 200) || strings.TrimSpace(in.TargetID) != in.TargetID {
+		return Removed{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "target.remove", in, func(tx Transaction) (Removed, error) {
+		old, e := tx.Target(in.Kind, in.TargetID)
+		if errors.Is(e, ErrNotFound) {
+			return Removed{ID: "", Removed: false}, nil
+		}
+		if e != nil {
+			return Removed{}, e
+		}
+		return Removed{ID: old.ID, Removed: true}, tx.DeleteItem(old.ID, s.now())
+	})
+}
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {
 	out := Items{Items: []Item{}}
 	f.Query = strings.TrimSpace(f.Query)

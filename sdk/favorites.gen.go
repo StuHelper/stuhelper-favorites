@@ -59,6 +59,27 @@ func (e ItemKind) Valid() bool {
 	}
 }
 
+// Defines values for TargetKind.
+const (
+	TargetKindCourse   TargetKind = "course"
+	TargetKindResource TargetKind = "resource"
+	TargetKindTeacher  TargetKind = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the TargetKind enum.
+func (e TargetKind) Valid() bool {
+	switch e {
+	case TargetKindCourse:
+		return true
+	case TargetKindResource:
+		return true
+	case TargetKindTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListFavoritesParamsKind.
 const (
 	ListFavoritesParamsKindCourse   ListFavoritesParamsKind = "course"
@@ -180,6 +201,15 @@ type Revision struct {
 	Revision int64 `json:"revision"`
 }
 
+// Target defines model for Target.
+type Target struct {
+	Kind     TargetKind `json:"kind"`
+	TargetId string     `json:"target_id"`
+}
+
+// TargetKind defines model for Target.Kind.
+type TargetKind string
+
 // ListFoldersParams defines parameters for ListFolders.
 type ListFoldersParams struct {
 	After *string `form:"after,omitempty" json:"after,omitempty"`
@@ -235,6 +265,16 @@ type RemoveFavoriteParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// RemoveTargetFavoriteParams defines parameters for RemoveTargetFavorite.
+type RemoveTargetFavoriteParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// SetTargetFavoriteParams defines parameters for SetTargetFavorite.
+type SetTargetFavoriteParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // CreateFolderJSONRequestBody defines body for CreateFolder for application/json ContentType.
 type CreateFolderJSONRequestBody = Name
 
@@ -252,6 +292,12 @@ type MoveFavoriteJSONRequestBody = Move
 
 // RemoveFavoriteJSONRequestBody defines body for RemoveFavorite for application/json ContentType.
 type RemoveFavoriteJSONRequestBody = Revision
+
+// RemoveTargetFavoriteJSONRequestBody defines body for RemoveTargetFavorite for application/json ContentType.
+type RemoveTargetFavoriteJSONRequestBody = Target
+
+// SetTargetFavoriteJSONRequestBody defines body for SetTargetFavorite for application/json ContentType.
+type SetTargetFavoriteJSONRequestBody = Add
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -380,6 +426,30 @@ type ClientInterface interface {
 	// RemoveFavorite performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type.
 	RemoveFavorite(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveTargetFavoriteWithBody performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+	RemoveTargetFavoriteWithBody(ctx context.Context, params *RemoveTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveTargetFavorite performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+	RemoveTargetFavorite(ctx context.Context, params *RemoveTargetFavoriteParams, body RemoveTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTargetFavoriteWithBody performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+	SetTargetFavoriteWithBody(ctx context.Context, params *SetTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTargetFavorite performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+	SetTargetFavorite(ctx context.Context, params *SetTargetFavoriteParams, body SetTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
@@ -566,6 +636,70 @@ func (c *Client) RemoveFavoriteWithBody(ctx context.Context, id string, params *
 // Takes a body of the `application/json` content type.
 func (c *Client) RemoveFavorite(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRemoveFavoriteRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveTargetFavoriteWithBody performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request,
+// with any type of body and a specified content type.
+//
+// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+func (c *Client) RemoveTargetFavoriteWithBody(ctx context.Context, params *RemoveTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveTargetFavoriteRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveTargetFavorite performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+func (c *Client) RemoveTargetFavorite(ctx context.Context, params *RemoveTargetFavoriteParams, body RemoveTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveTargetFavoriteRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTargetFavoriteWithBody performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request,
+// with any type of body and a specified content type.
+//
+// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+func (c *Client) SetTargetFavoriteWithBody(ctx context.Context, params *SetTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTargetFavoriteRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTargetFavorite performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+func (c *Client) SetTargetFavorite(ctx context.Context, params *SetTargetFavoriteParams, body SetTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTargetFavoriteRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,6 +1248,112 @@ func NewRemoveFavoriteRequestWithBody(server string, id string, params *RemoveFa
 	return req, nil
 }
 
+// NewRemoveTargetFavoriteRequest calls the generic RemoveTargetFavorite builder with application/json body
+func NewRemoveTargetFavoriteRequest(server string, params *RemoveTargetFavoriteParams, body RemoveTargetFavoriteJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRemoveTargetFavoriteRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewRemoveTargetFavoriteRequestWithBody constructs an http.Request for the RemoveTargetFavorite method, with any body, and a specified content type
+func NewRemoveTargetFavoriteRequestWithBody(server string, params *RemoveTargetFavoriteParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/targets/remove")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewSetTargetFavoriteRequest calls the generic SetTargetFavorite builder with application/json body
+func NewSetTargetFavoriteRequest(server string, params *SetTargetFavoriteParams, body SetTargetFavoriteJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetTargetFavoriteRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewSetTargetFavoriteRequestWithBody constructs an http.Request for the SetTargetFavorite method, with any body, and a specified content type
+func NewSetTargetFavoriteRequestWithBody(server string, params *SetTargetFavoriteParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/targets/set")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1227,6 +1467,34 @@ type ClientWithResponsesInterface interface {
 	// RemoveFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	RemoveFavoriteWithResponse(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveFavoriteResponse, error)
+
+	// RemoveTargetFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RemoveTargetFavoriteWithBodyWithResponse(ctx context.Context, params *RemoveTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RemoveTargetFavoriteResponse, error)
+
+	// RemoveTargetFavoriteWithResponse performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+	RemoveTargetFavoriteWithResponse(ctx context.Context, params *RemoveTargetFavoriteParams, body RemoveTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveTargetFavoriteResponse, error)
+
+	// SetTargetFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	SetTargetFavoriteWithBodyWithResponse(ctx context.Context, params *SetTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTargetFavoriteResponse, error)
+
+	// SetTargetFavoriteWithResponse performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+	SetTargetFavoriteWithResponse(ctx context.Context, params *SetTargetFavoriteParams, body SetTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTargetFavoriteResponse, error)
 }
 
 type ListFoldersResponse struct {
@@ -1893,6 +2161,172 @@ func (r RemoveFavoriteResponse) ContentType() string {
 	return ""
 }
 
+type RemoveTargetFavoriteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Removed
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON200() *Removed {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RemoveTargetFavoriteResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveTargetFavoriteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveTargetFavoriteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveTargetFavoriteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveTargetFavoriteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetTargetFavoriteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Item
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON200() *Item {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r SetTargetFavoriteResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r SetTargetFavoriteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetTargetFavoriteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetTargetFavoriteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetTargetFavoriteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2045,6 +2479,58 @@ func (c *ClientWithResponses) RemoveFavoriteWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseRemoveFavoriteResponse(rsp)
+}
+
+// RemoveTargetFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request,
+// with any type of body and a specified content type.
+//
+// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RemoveTargetFavoriteWithBodyWithResponse(ctx context.Context, params *RemoveTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RemoveTargetFavoriteResponse, error) {
+	rsp, err := c.RemoveTargetFavoriteWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveTargetFavoriteResponse(rsp)
+}
+
+// RemoveTargetFavoriteWithResponse performs a POST /api/v1/favorites/targets/remove (the `RemoveTargetFavorite` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Idempotently remove an own favorite by (kind, target_id). Returns removed=false with an empty id when the target is already absent.
+func (c *ClientWithResponses) RemoveTargetFavoriteWithResponse(ctx context.Context, params *RemoveTargetFavoriteParams, body RemoveTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveTargetFavoriteResponse, error) {
+	rsp, err := c.RemoveTargetFavorite(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveTargetFavoriteResponse(rsp)
+}
+
+// SetTargetFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request,
+// with any type of body and a specified content type.
+//
+// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) SetTargetFavoriteWithBodyWithResponse(ctx context.Context, params *SetTargetFavoriteParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTargetFavoriteResponse, error) {
+	rsp, err := c.SetTargetFavoriteWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTargetFavoriteResponse(rsp)
+}
+
+// SetTargetFavoriteWithResponse performs a POST /api/v1/favorites/targets/set (the `SetTargetFavorite` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Create or move an own favorite by (kind, target_id). New targets check current content admission; already owned targets move atomically to folder_id (or the default folder when omitted) without re-checking admission or recounting public activity.
+func (c *ClientWithResponses) SetTargetFavoriteWithResponse(ctx context.Context, params *SetTargetFavoriteParams, body SetTargetFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTargetFavoriteResponse, error) {
+	rsp, err := c.SetTargetFavorite(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTargetFavoriteResponse(rsp)
 }
 
 // ParseListFoldersResponse parses an HTTP response from a ListFoldersWithResponse call
@@ -2539,6 +3025,142 @@ func ParseRemoveFavoriteResponse(rsp *http.Response) (*RemoveFavoriteResponse, e
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Removed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveTargetFavoriteResponse parses an HTTP response from a RemoveTargetFavoriteWithResponse call
+func ParseRemoveTargetFavoriteResponse(rsp *http.Response) (*RemoveTargetFavoriteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveTargetFavoriteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Removed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetTargetFavoriteResponse parses an HTTP response from a SetTargetFavoriteWithResponse call
+func ParseSetTargetFavoriteResponse(rsp *http.Response) (*SetTargetFavoriteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetTargetFavoriteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Item
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
