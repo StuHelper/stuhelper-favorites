@@ -16,12 +16,20 @@ var (
 	ErrUnavailable     = errors.New("unavailable")
 )
 
+type KindCounts struct {
+	Course   int64 `json:"course"`
+	Teacher  int64 `json:"teacher"`
+	Resource int64 `json:"resource"`
+}
 type Folder struct {
-	ItemCount int64  `json:"item_count"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Default   bool   `json:"is_default"`
-	Revision  int64  `json:"revision"`
+	CreatedAt  time.Time  `json:"-"`
+	KindCounts KindCounts `json:"kind_counts"`
+	ItemCount  int64      `json:"item_count"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Revision   int64      `json:"revision"`
+	Position   int        `json:"-"`
+	Default    bool       `json:"is_default"`
 }
 type Item struct {
 	CanonicalTargetID string    `json:"-"`
@@ -69,6 +77,13 @@ type Position struct {
 	CreatedAt time.Time
 	Filter    string
 }
+type FolderPosition struct {
+	ID        string
+	Position  int
+	CreatedAt time.Time
+	Default   bool
+	Owner     string
+}
 
 // Source must enforce current admission and target visibility before returning a minimal title.
 // ResolvedTarget includes the current canonical ID supplied by the owning module.
@@ -85,7 +100,7 @@ type Transaction interface {
 	Event(string, string) error
 	Folder(string) (Folder, error)
 	DefaultFolder() (Folder, error)
-	Folders(string, int) ([]Folder, error)
+	Folders(FolderPosition, int) ([]Folder, error)
 	SaveFolder(Folder) error
 	DeleteFolder(string, string) error
 	Item(string) (Item, error)

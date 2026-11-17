@@ -119,9 +119,12 @@ type Folder struct {
 	IsDefault bool   `json:"is_default"`
 
 	// ItemCount Current number of own favorites in this folder, without kind or text filters.
-	ItemCount int64  `json:"item_count"`
-	Name      string `json:"name"`
-	Revision  int64  `json:"revision"`
+	ItemCount int64 `json:"item_count"`
+
+	// KindCounts Per-kind breakdown of own favorites in this folder, unaffected by list filters.
+	KindCounts KindCounts `json:"kind_counts"`
+	Name       string     `json:"name"`
+	Revision   int64      `json:"revision"`
 }
 
 // Folders defines model for Folders.
@@ -150,6 +153,13 @@ type Items struct {
 	Next  *string `json:"next,omitempty"`
 }
 
+// KindCounts Per-kind breakdown of own favorites in this folder, unaffected by list filters.
+type KindCounts struct {
+	Course   int64 `json:"course"`
+	Resource int64 `json:"resource"`
+	Teacher  int64 `json:"teacher"`
+}
+
 // Move defines model for Move.
 type Move struct {
 	FolderId string `json:"folder_id"`
@@ -170,7 +180,7 @@ type Removed struct {
 
 // Rename defines model for Rename.
 type Rename struct {
-	// Name Trim leading and trailing Unicode whitespace. Names must be unique within the owner folders (case-sensitive), including a renamed default folder.
+	// Name Trim leading and trailing Unicode whitespace. Custom folders require 1 to 20 Unicode code points; passing an empty name on the default folder resets it to the unnamed state so clients render the localized default label. Non-empty names must be unique within the owner folders (case-sensitive).
 	Name     string `json:"name"`
 	Revision int64  `json:"revision"`
 }
@@ -328,6 +338,8 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 type ClientInterface interface {
 
 	// ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
+	//
+	// List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC).
 	ListFolders(ctx context.Context, params *ListFoldersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateFolderWithBody performs a POST /api/v1/favorites/folders (the `CreateFolder` operationId) request,
@@ -383,6 +395,8 @@ type ClientInterface interface {
 }
 
 // ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
+//
+// List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC).
 func (c *Client) ListFolders(ctx context.Context, params *ListFoldersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListFoldersRequest(c.Server, params)
 	if err != nil {
@@ -1160,6 +1174,8 @@ type ClientWithResponsesInterface interface {
 
 	// ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 	//
+	// List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC).
+	//
 	// Returns a wrapper object for the known response body format(s).
 	ListFoldersWithResponse(ctx context.Context, params *ListFoldersParams, reqEditors ...RequestEditorFn) (*ListFoldersResponse, error)
 
@@ -1894,6 +1910,8 @@ func (r RemoveFavoriteResponse) ContentType() string {
 }
 
 // ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
+//
+// List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC).
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) ListFoldersWithResponse(ctx context.Context, params *ListFoldersParams, reqEditors ...RequestEditorFn) (*ListFoldersResponse, error) {

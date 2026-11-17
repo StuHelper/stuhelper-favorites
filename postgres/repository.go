@@ -114,17 +114,17 @@ type scanner interface{ Scan(...any) error }
 
 func folder(row scanner) (f.Folder, error) {
 	var v f.Folder
-	e := row.Scan(&v.ID, &v.Name, &v.Default, &v.Revision, &v.ItemCount)
+	e := row.Scan(&v.ID, &v.Name, &v.Default, &v.Revision, &v.Position, &v.CreatedAt, &v.ItemCount, &v.KindCounts.Course, &v.KindCounts.Teacher, &v.KindCounts.Resource)
 	return v, safe(e)
 }
 func (t *transaction) Folder(id string) (f.Folder, error) {
-	return folder(t.tx.QueryRowContext(t.ctx, `SELECT id,name,is_default,revision,(SELECT count(*) FROM favorites.items item WHERE item.owner_key=favorites.folders.owner_key AND item.folder_id=favorites.folders.id) FROM favorites.folders WHERE owner_key=$1 AND id=$2`, t.owner, id))
+	return folder(t.tx.QueryRowContext(t.ctx, `WITH counts AS (SELECT count(*) AS total,count(*) FILTER(WHERE kind='course') AS course_count,count(*) FILTER(WHERE kind='teacher') AS teacher_count,count(*) FILTER(WHERE kind='resource') AS resource_count FROM favorites.items WHERE owner_key=$1 AND folder_id=$2) SELECT f.id,f.name,f.is_default,f.revision,f.position,f.created_at,c.total,c.course_count,c.teacher_count,c.resource_count FROM favorites.folders f CROSS JOIN counts c WHERE f.owner_key=$1 AND f.id=$2`, t.owner, id))
 }
 func (t *transaction) DefaultFolder() (f.Folder, error) {
-	return folder(t.tx.QueryRowContext(t.ctx, `SELECT id,name,is_default,revision,(SELECT count(*) FROM favorites.items item WHERE item.owner_key=favorites.folders.owner_key AND item.folder_id=favorites.folders.id) FROM favorites.folders WHERE owner_key=$1 AND is_default`, t.owner))
+	return folder(t.tx.QueryRowContext(t.ctx, `WITH target AS (SELECT id,name,is_default,revision,position,created_at FROM favorites.folders WHERE owner_key=$1 AND is_default),counts AS (SELECT count(*) AS total,count(*) FILTER(WHERE kind='course') AS course_count,count(*) FILTER(WHERE kind='teacher') AS teacher_count,count(*) FILTER(WHERE kind='resource') AS resource_count FROM favorites.items WHERE owner_key=$1 AND folder_id=(SELECT id FROM target)) SELECT t.id,t.name,t.is_default,t.revision,t.position,t.created_at,c.total,c.course_count,c.teacher_count,c.resource_count FROM target t CROSS JOIN counts c`, t.owner))
 }
-func (t *transaction) Folders(after string, limit int) ([]f.Folder, error) {
-	rows, e := t.tx.QueryContext(t.ctx, `SELECT id,name,is_default,revision,(SELECT count(*) FROM favorites.items item WHERE item.owner_key=favorites.folders.owner_key AND item.folder_id=favorites.folders.id) FROM favorites.folders WHERE owner_key=$1 AND id>$2 ORDER BY id LIMIT $3`, t.owner, after, limit)
+func (t *transaction) Folders(pos f.FolderPosition, limit int) ([]f.Folder, error) {
+	rows, e := t.tx.QueryContext(t.ctx, `WITH counts AS (SELECT folder_id,count(*) AS total,count(*) FILTER(WHERE kind='course') AS course_count,count(*) FILTER(WHERE kind='teacher') AS teacher_count,count(*) FILTER(WHERE kind='resource') AS resource_count FROM favorites.items WHERE owner_key=$1 GROUP BY folder_id) SELECT f.id,f.name,f.is_default,f.revision,f.position,f.created_at,COALESCE(c.total,0),COALESCE(c.course_count,0),COALESCE(c.teacher_count,0),COALESCE(c.resource_count,0) FROM favorites.folders f LEFT JOIN counts c ON c.folder_id=f.id WHERE f.owner_key=$1 AND ($2='' OR (NOT f.is_default,f.position,f.created_at,f.id COLLATE "C")>(NOT $3,$4,$5::timestamptz,$2 COLLATE "C")) ORDER BY f.is_default DESC,f.position ASC,f.created_at ASC,f.id COLLATE "C" ASC LIMIT $6`, t.owner, pos.ID, pos.Default, pos.Position, pos.CreatedAt, limit)
 	if e != nil {
 		return nil, safe(e)
 	}
@@ -140,7 +140,11 @@ func (t *transaction) Folders(after string, limit int) ([]f.Folder, error) {
 	return out, safe(rows.Err())
 }
 func (t *transaction) SaveFolder(v f.Folder) error {
-	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.folders VALUES($1,$2,$3,$4,$5) ON CONFLICT(owner_key,id) DO UPDATE SET name=EXCLUDED.name,revision=EXCLUDED.revision`, t.owner, v.ID, v.Name, v.Default, v.Revision)
+	createdAt := v.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.folders(owner_key,id,name,is_default,revision,position,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(owner_key,id) DO UPDATE SET name=EXCLUDED.name,revision=EXCLUDED.revision`, t.owner, v.ID, v.Name, v.Default, v.Revision, v.Position, createdAt)
 	return safe(e)
 }
 func (t *transaction) DeleteFolder(id, defaultID string) error {
