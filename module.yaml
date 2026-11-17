@@ -31,6 +31,7 @@ scenario_tests:
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
+    - export_test.go#TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
   PC-07:

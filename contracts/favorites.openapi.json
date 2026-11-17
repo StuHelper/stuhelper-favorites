@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "StuHelper Favorites",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Own favorite receipts and folders. New favorites require current content admission; own reads, moves and removals require login only. Titles are snapshots and do not grant access to public detail. Default folder has an empty name until renamed by its owner; clients localize the default label."
   },
   "security": [
@@ -880,6 +880,112 @@
           }
         }
       }
+    },
+    "/api/v1/favorites/export": {
+      "get": {
+        "operationId": "exportFavorites",
+        "description": "Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.",
+        "parameters": [
+          {
+            "name": "folder_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "course",
+                "teacher",
+                "resource"
+              ]
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned folder not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1123,6 +1229,87 @@
         "required": [
           "id",
           "removed"
+        ]
+      },
+      "ExportItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "course",
+              "teacher",
+              "resource"
+            ]
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "canonical_target_id": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string",
+            "description": "Canonical application path (/courses/{id}, /teachers/{id}, or /resources/items/{id})."
+          },
+          "title": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "folder_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "target_id",
+          "canonical_target_id",
+          "target_path",
+          "title",
+          "folder_id",
+          "folder_name",
+          "created_at"
+        ]
+      },
+      "Export": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "exported_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportItem"
+            }
+          },
+          "next": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exported_at",
+          "folders",
+          "items"
         ]
       }
     }

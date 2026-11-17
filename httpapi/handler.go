@@ -39,6 +39,9 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && len(parts) == 1 {
 		q := r.URL.Query()
 		limit := 30
+		if parts[0] == "export" {
+			limit = 200
+		}
 		if q.Has("limit") {
 			limit, e = strconv.Atoi(q.Get("limit"))
 			if e != nil {
@@ -59,6 +62,8 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				targets = strings.Split(q.Get("target_ids"), ",")
 			}
 			out, e = h.Service.List(ctx, owner, f.Filter{TargetIDs: targets, After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
+		case "export":
+			out, e = h.Service.Export(ctx, owner, f.ExportFilter{FolderID: q.Get("folder_id"), Kind: q.Get("kind"), After: q.Get("after"), Limit: limit})
 		default:
 			e = f.ErrNotFound
 		}

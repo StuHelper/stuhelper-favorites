@@ -38,6 +38,27 @@ func (e AddKind) Valid() bool {
 	}
 }
 
+// Defines values for ExportItemKind.
+const (
+	ExportItemKindCourse   ExportItemKind = "course"
+	ExportItemKindResource ExportItemKind = "resource"
+	ExportItemKindTeacher  ExportItemKind = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the ExportItemKind enum.
+func (e ExportItemKind) Valid() bool {
+	switch e {
+	case ExportItemKindCourse:
+		return true
+	case ExportItemKindResource:
+		return true
+	case ExportItemKindTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ItemKind.
 const (
 	ItemKindCourse   ItemKind = "course"
@@ -53,6 +74,27 @@ func (e ItemKind) Valid() bool {
 	case ItemKindResource:
 		return true
 	case ItemKindTeacher:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ExportFavoritesParamsKind.
+const (
+	ExportFavoritesParamsKindCourse   ExportFavoritesParamsKind = "course"
+	ExportFavoritesParamsKindResource ExportFavoritesParamsKind = "resource"
+	ExportFavoritesParamsKindTeacher  ExportFavoritesParamsKind = "teacher"
+)
+
+// Valid indicates whether the value is a known member of the ExportFavoritesParamsKind enum.
+func (e ExportFavoritesParamsKind) Valid() bool {
+	switch e {
+	case ExportFavoritesParamsKindCourse:
+		return true
+	case ExportFavoritesParamsKindResource:
+		return true
+	case ExportFavoritesParamsKindTeacher:
 		return true
 	default:
 		return false
@@ -112,6 +154,32 @@ type AddKind string
 type Error struct {
 	Code string `json:"code"`
 }
+
+// Export defines model for Export.
+type Export struct {
+	ExportedAt time.Time    `json:"exported_at"`
+	Folders    []Folder     `json:"folders"`
+	Items      []ExportItem `json:"items"`
+	Next       *string      `json:"next,omitempty"`
+}
+
+// ExportItem defines model for ExportItem.
+type ExportItem struct {
+	CanonicalTargetId string         `json:"canonical_target_id"`
+	CreatedAt         time.Time      `json:"created_at"`
+	FolderId          string         `json:"folder_id"`
+	FolderName        string         `json:"folder_name"`
+	Id                string         `json:"id"`
+	Kind              ExportItemKind `json:"kind"`
+	TargetId          string         `json:"target_id"`
+
+	// TargetPath Canonical application path (/courses/{id}, /teachers/{id}, or /resources/items/{id}).
+	TargetPath string `json:"target_path"`
+	Title      string `json:"title"`
+}
+
+// ExportItemKind defines model for ExportItem.Kind.
+type ExportItemKind string
 
 // Folder defines model for Folder.
 type Folder struct {
@@ -179,6 +247,17 @@ type Rename struct {
 type Revision struct {
 	Revision int64 `json:"revision"`
 }
+
+// ExportFavoritesParams defines parameters for ExportFavorites.
+type ExportFavoritesParams struct {
+	FolderId *string                    `form:"folder_id,omitempty" json:"folder_id,omitempty"`
+	Kind     *ExportFavoritesParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+	After    *string                    `form:"after,omitempty" json:"after,omitempty"`
+	Limit    *int                       `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ExportFavoritesParamsKind defines parameters for ExportFavorites.
+type ExportFavoritesParamsKind string
 
 // ListFoldersParams defines parameters for ListFolders.
 type ListFoldersParams struct {
@@ -327,6 +406,11 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// ExportFavorites performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
+	//
+	// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+	ExportFavorites(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 	ListFolders(ctx context.Context, params *ListFoldersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -380,6 +464,21 @@ type ClientInterface interface {
 	// RemoveFavorite performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type.
 	RemoveFavorite(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ExportFavorites performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
+//
+// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+func (c *Client) ExportFavorites(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExportFavoritesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
@@ -574,6 +673,96 @@ func (c *Client) RemoveFavorite(ctx context.Context, id string, params *RemoveFa
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewExportFavoritesRequest constructs an http.Request for the ExportFavorites method
+func NewExportFavoritesRequest(server string, params *ExportFavoritesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/export")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.FolderId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "folder_id", *params.FolderId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListFoldersRequest constructs an http.Request for the ListFolders method
@@ -1158,6 +1347,13 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// ExportFavoritesWithResponse performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
+	//
+	// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ExportFavoritesWithResponse(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*ExportFavoritesResponse, error)
+
 	// ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -1227,6 +1423,82 @@ type ClientWithResponsesInterface interface {
 	// RemoveFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	RemoveFavoriteWithResponse(ctx context.Context, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*RemoveFavoriteResponse, error)
+}
+
+type ExportFavoritesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Export
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExportFavoritesResponse) GetJSON200() *Export {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExportFavoritesResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExportFavoritesResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ExportFavoritesResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExportFavoritesResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ExportFavoritesResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ExportFavoritesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExportFavoritesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExportFavoritesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExportFavoritesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListFoldersResponse struct {
@@ -1893,6 +2165,19 @@ func (r RemoveFavoriteResponse) ContentType() string {
 	return ""
 }
 
+// ExportFavoritesWithResponse performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
+//
+// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ExportFavoritesWithResponse(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*ExportFavoritesResponse, error) {
+	rsp, err := c.ExportFavorites(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExportFavoritesResponse(rsp)
+}
+
 // ListFoldersWithResponse performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2045,6 +2330,67 @@ func (c *ClientWithResponses) RemoveFavoriteWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseRemoveFavoriteResponse(rsp)
+}
+
+// ParseExportFavoritesResponse parses an HTTP response from a ExportFavoritesWithResponse call
+func ParseExportFavoritesResponse(rsp *http.Response) (*ExportFavoritesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExportFavoritesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Export
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListFoldersResponse parses an HTTP response from a ListFoldersWithResponse call
