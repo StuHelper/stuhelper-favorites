@@ -16,9 +16,24 @@ import (
 )
 
 type Service struct {
-	Repo   Repository
-	Source Source
-	Now    func() time.Time
+	Repo       Repository
+	Source     Source
+	Now        func() time.Time
+	MaxFolders int
+	MaxItems   int
+}
+
+func (s *Service) maxFolders() int {
+	if s.MaxFolders > 0 {
+		return s.MaxFolders
+	}
+	return DefaultMaxFolders
+}
+func (s *Service) maxItems() int {
+	if s.MaxItems > 0 {
+		return s.MaxItems
+	}
+	return DefaultMaxItems
 }
 
 func (s *Service) now() time.Time {
@@ -90,6 +105,13 @@ func (s *Service) CreateFolder(ctx context.Context, owner, key, name string) (Fo
 		return Folder{}, ErrInput
 	}
 	return mutation(ctx, s, owner, key, "folder.create", name, func(tx Transaction) (Folder, error) {
+		n, e := tx.FolderCount()
+		if e != nil {
+			return Folder{}, e
+		}
+		if n >= s.maxFolders() {
+			return Folder{}, ErrConflict
+		}
 		v := Folder{ID: id(), Name: name, Revision: 1}
 		return v, tx.SaveFolder(v)
 	})
@@ -164,6 +186,13 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		if !errors.Is(e, ErrNotFound) {
 			return Item{}, e
 		}
+		n, e := tx.ItemCount()
+		if e != nil {
+			return Item{}, e
+		}
+		if n >= s.maxItems() {
+			return Item{}, ErrConflict
+		}
 		var folder Folder
 		if in.FolderID == "" {
 			folder, e = tx.DefaultFolder()
@@ -222,6 +251,52 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 			return Removed{}, ErrConflict
 		}
 		return Removed{item, true}, tx.DeleteItem(item, s.now())
+	})
+}
+func uniqueValidIDs(ids []string) ([]string, bool) {
+	if len(ids) < 1 || len(ids) > 100 {
+		return nil, false
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, item := range ids {
+		if !valid(item, 200) || strings.TrimSpace(item) != item {
+			return nil, false
+		}
+		if _, dup := seen[item]; !dup {
+			seen[item] = struct{}{}
+			out = append(out, item)
+		}
+	}
+	return out, true
+}
+func (s *Service) BatchMove(ctx context.Context, owner, key string, in BatchMove) (Items, error) {
+	ids, ok := uniqueValidIDs(in.IDs)
+	if !ok || !valid(in.FolderID, 200) || strings.TrimSpace(in.FolderID) != in.FolderID {
+		return Items{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "item.batch_move", in, func(tx Transaction) (Items, error) {
+		if _, e := tx.Folder(in.FolderID); e != nil {
+			return Items{}, e
+		}
+		moved, e := tx.MoveItems(ids, in.FolderID)
+		if e != nil {
+			return Items{}, e
+		}
+		return Items{Items: moved}, nil
+	})
+}
+func (s *Service) BatchRemove(ctx context.Context, owner, key string, in BatchRemove) (BatchRemoved, error) {
+	ids, ok := uniqueValidIDs(in.IDs)
+	if !ok {
+		return BatchRemoved{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "item.batch_remove", in, func(tx Transaction) (BatchRemoved, error) {
+		removed, e := tx.DeleteItems(ids, s.now())
+		if e != nil {
+			return BatchRemoved{}, e
+		}
+		return BatchRemoved{IDs: removed, RemovedCount: int64(len(removed))}, nil
 	})
 }
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {

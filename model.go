@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	DefaultMaxFolders = 200
+	DefaultMaxItems   = 10000
+)
+
 var (
 	ErrInput           = errors.New("invalid_input")
 	ErrUnauthenticated = errors.New("unauthenticated")
@@ -58,6 +63,17 @@ type Removed struct {
 	ID      string `json:"id"`
 	Removed bool   `json:"removed"`
 }
+type BatchMove struct {
+	FolderID string   `json:"folder_id"`
+	IDs      []string `json:"ids"`
+}
+type BatchRemove struct {
+	IDs []string `json:"ids"`
+}
+type BatchRemoved struct {
+	IDs          []string `json:"ids"`
+	RemovedCount int64    `json:"removed_count"`
+}
 type Filter struct {
 	TargetIDs                          []string
 	FolderID, Kind, Query, Sort, After string
@@ -84,13 +100,17 @@ type Transaction interface {
 	SaveReplay(string, string, json.RawMessage) error
 	Event(string, string) error
 	Folder(string) (Folder, error)
+	FolderCount() (int, error)
 	DefaultFolder() (Folder, error)
 	Folders(string, int) ([]Folder, error)
 	SaveFolder(Folder) error
 	DeleteFolder(string, string) error
 	Item(string) (Item, error)
+	ItemCount() (int, error)
 	Target(string, string) (Item, error)
 	Items(Filter, Position) ([]Item, error)
 	SaveItem(Item) error
+	MoveItems([]string, string) ([]Item, error)
 	DeleteItem(string, time.Time) error
+	DeleteItems([]string, time.Time) ([]string, error)
 }

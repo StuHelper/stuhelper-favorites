@@ -92,6 +92,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.DeleteFolder(ctx, owner, key, parts[1], in.Revision)
+		case len(parts) == 2 && parts[0] == "items" && parts[1] == "batch-move":
+			var in f.BatchMove
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.BatchMove(ctx, owner, key, in)
+		case len(parts) == 2 && parts[0] == "items" && parts[1] == "batch-remove":
+			var in f.BatchRemove
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.BatchRemove(ctx, owner, key, in)
 		case len(parts) == 3 && parts[0] == "items" && parts[2] == "move":
 			var in f.Move
 			if decode(w, r, &in) != nil {
@@ -120,7 +132,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072))
 	decoder.DisallowUnknownFields()
 	e := decoder.Decode(v)
 	if e == nil {
