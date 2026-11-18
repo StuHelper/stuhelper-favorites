@@ -46,6 +46,9 @@ scenario_tests:
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
     - target_ops_test.go#TestTargetSetAndRemoveSwitchFoldersIdempotentlyWithoutDuplicateActivity
     - folders_ux_test.go#TestFoldersDefaultPinnedDeterministicOrderResetNameAndKindCounts
+    - batch_quota_test.go#TestBatchMoveRemoveAtomicityActivityAggregationAndOwnerQuotas
+    - batch_quota_test.go#TestBatchRemovalMatchesClosureActivityOrder
+    - batch_quota_test.go#TestBatchRemovalCoalescesLegacyCanonicalDuplicates
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
