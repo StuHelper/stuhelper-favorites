@@ -38,6 +38,8 @@ scenario_tests:
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
+    - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
+    - http_contract_input_test.go#TestFolderNameNormalizationReplaysPreUpgradeReceipts
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:

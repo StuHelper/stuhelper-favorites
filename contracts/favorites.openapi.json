@@ -3,7 +3,7 @@
   "info": {
     "title": "StuHelper Favorites",
     "version": "0.2.0",
-    "description": "Own favorite receipts and folders. New favorites require current content admission; own reads, moves and removals require login only. Titles are snapshots and do not grant access to public detail. Default folder has an empty name until renamed by its owner; clients localize the default label."
+    "description": "Own favorite receipts and folders. New favorites require current content admission; own reads, moves and removals require login only. Titles are snapshots and do not grant access to public detail. Default folder has an empty name until renamed by its owner; clients localize the default label. POST requests require Content-Type application/json. Missing or unsupported media types return 400."
   },
   "security": [
     {
@@ -116,7 +116,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -223,7 +224,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -330,7 +332,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -579,7 +582,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -686,7 +690,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -793,7 +798,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -950,7 +956,8 @@
           },
           "revision": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "minimum": 1
           },
           "created_at": {
             "type": "string",
@@ -1096,7 +1103,9 @@
         "additionalProperties": false,
         "properties": {
           "folder_id": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           },
           "revision": {
             "type": "integer",

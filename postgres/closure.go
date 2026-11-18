@@ -8,6 +8,9 @@ import (
 )
 
 func (r *Repository) CloseOwner(ctx context.Context, owner, id string) error {
+	if !r.readyDB() {
+		return f.ErrUnavailable
+	}
 	tx, e := r.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return safe(e)
