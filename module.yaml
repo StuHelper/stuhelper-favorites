@@ -29,6 +29,7 @@ scenario_tests:
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
+    - canonical_migration_test.go#TestCanonicalTargetDeduplicationAndLegacyMigration
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:

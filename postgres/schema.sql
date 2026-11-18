@@ -4,6 +4,11 @@ CREATE TABLE IF NOT EXISTS favorites.folders(owner_key text NOT NULL REFERENCES 
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_folder_names ON favorites.folders(owner_key,name COLLATE "C");
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_one_default ON favorites.folders(owner_key) WHERE is_default;
 CREATE TABLE IF NOT EXISTS favorites.items(owner_key text NOT NULL,id text NOT NULL,kind text NOT NULL CHECK(kind IN('course','teacher','resource')),target_id text NOT NULL,canonical_target_id text NOT NULL DEFAULT '',title text NOT NULL CHECK(char_length(title)<=500),folder_id text NOT NULL,revision bigint NOT NULL CHECK(revision>0),created_at timestamptz NOT NULL,PRIMARY KEY(owner_key,id),UNIQUE(owner_key,kind,target_id),FOREIGN KEY(owner_key,folder_id) REFERENCES favorites.folders(owner_key,id));
+ALTER TABLE favorites.items ADD COLUMN IF NOT EXISTS canonical_target_id text NOT NULL DEFAULT '';
+UPDATE favorites.items SET canonical_target_id=target_id WHERE canonical_target_id='';
+DELETE FROM favorites.items a USING favorites.items b WHERE a.owner_key=b.owner_key AND a.kind=b.kind AND a.canonical_target_id=b.canonical_target_id AND a.canonical_target_id<>'' AND (a.created_at>b.created_at OR (a.created_at=b.created_at AND a.id>b.id));
+DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='favorites_items_canonical_check' AND conrelid='favorites.items'::regclass) THEN ALTER TABLE favorites.items ADD CONSTRAINT favorites_items_canonical_check CHECK(canonical_target_id<>'' AND char_length(canonical_target_id)<=200); END IF; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS favorites_items_canonical ON favorites.items(owner_key,kind,canonical_target_id) WHERE canonical_target_id<>'';
 CREATE INDEX IF NOT EXISTS favorites_items_newest ON favorites.items(owner_key,created_at DESC,id);
 CREATE INDEX IF NOT EXISTS favorites_items_name ON favorites.items(owner_key,title COLLATE "C",id);
 CREATE INDEX IF NOT EXISTS favorites_items_folder ON favorites.items(owner_key,folder_id);

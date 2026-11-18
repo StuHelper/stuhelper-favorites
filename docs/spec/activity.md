@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # 热门活动来源
@@ -24,7 +24,7 @@ favorites 等于当日新增数减当日取消数，对外下限为零。内部�
 
 只统计课程与教师收藏，资料收藏不生成活动。来源 Resolve 返回 ResolvedTarget{ID, Kind, Title}，其中 ID 必须为当前规范 ID，且必须执行请求人的当前授权。backend 来源适配器需要返回所属模块提供的真实规范 ID。
 
-本人记录保留原 TargetID，用独立 canonical_target_id 保存统计目标。新增与取消使用同一统计目标，活动事件不包含本人记录或账号。CurrentActivity 重新调用来源 Resolve，并拒绝已变为别名的旧统计目标。
+本人记录保留原 TargetID，用独立 canonical_target_id 保存非空统计目标，同一账号按种类与规范目标唯一去重。新增、取消和注销使用同一统计目标，存量迁移自动回填，活动事件不包含本人记录或账号。CurrentActivity 重新调用来源 Resolve，并拒绝已变为别名的旧统计目标。
 
 favorites.events 继续用于本模块审计，新的 favorites.outbox 专门保存可投递的活动封套。新增、取消和注销的计数或 outbox 写入失败时，业务操作同事务回滚，不能留下与收藏记录不一致的成功结果。
 
