@@ -1,11 +1,14 @@
 package favorites
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // CloseOwner permanently removes personal collections through a trusted port.
 // The closure marker prevents concurrent writes and migration from restoring data.
 func (s *Service) CloseOwner(ctx context.Context, owner, id string) error {
-	if !valid(owner, 2048) || len(id) != 36 {
+	if !valid(owner, 2048) || len(id) != 36 || !valid(id, 36) || strings.TrimSpace(id) != id {
 		return ErrInput
 	}
 	r, ok := s.Repo.(interface {

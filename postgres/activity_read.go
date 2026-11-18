@@ -6,8 +6,37 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	m "github.com/StuHelper/stuhelper-favorites"
+	"strconv"
+	"strings"
 	"time"
 )
+
+func validSnapshot(s string) bool {
+	if s == "" || len(s) > 8192 {
+		return false
+	}
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return false
+	}
+	xmin, err1 := strconv.ParseUint(parts[0], 10, 64)
+	xmax, err2 := strconv.ParseUint(parts[1], 10, 64)
+	if err1 != nil || err2 != nil || xmin > xmax {
+		return false
+	}
+	if parts[2] == "" {
+		return true
+	}
+	var prev uint64
+	for i, item := range strings.Split(parts[2], ",") {
+		v, err := strconv.ParseUint(item, 10, 64)
+		if err != nil || v < xmin || v >= xmax || (i > 0 && v <= prev) {
+			return false
+		}
+		prev = v
+	}
+	return true
+}
 
 var _ m.ActivityReader = (*Repository)(nil)
 
@@ -42,7 +71,10 @@ func (r *Repository) ActivitySnapshot(ctx context.Context, fromDay, toDay time.T
 	state := activityCursor{Version: 1, From: fromDay, To: toDay, Limit: limit, Expires: time.Now().Add(5 * time.Minute)}
 	if cursor != "" {
 		raw, e := base64.RawURLEncoding.DecodeString(cursor)
-		if e != nil || json.Unmarshal(raw, &state) != nil || state.Version != 1 || !state.From.Equal(fromDay) || !state.To.Equal(toDay) || state.Limit != limit || state.After == "" || len(state.After) > 512 || state.Visibility == "" || !time.Now().Before(state.Expires) {
+		if e != nil || json.Unmarshal(raw, &state) != nil || state.Version != 1 || !state.From.Equal(fromDay) || !state.To.Equal(toDay) || state.Limit != limit || !validSnapshot(state.Visibility) || !time.Now().Before(state.Expires) {
+			return out, "", m.ErrInput
+		}
+		if _, _, err := m.ParseActivityID(state.After); err != nil {
 			return out, "", m.ErrInput
 		}
 	}

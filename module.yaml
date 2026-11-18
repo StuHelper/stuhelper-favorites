@@ -29,6 +29,7 @@ scenario_tests:
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
+    - validation_errors_test.go#TestUnicodeActivityIDCursorValidationAndSanitizedDatabaseErrors
   FAV-01:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:

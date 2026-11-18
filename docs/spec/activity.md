@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # 热门活动来源
@@ -10,7 +10,7 @@ updated: 2026-11-15
 
 活动采用 search 9c56ad3 的 discovery-activity.schema.json，版本 1.0.0。contracts 保存原始 Schema、来源提交和 SHA-256。测试核对固定摘要，再逐条验证 outbox 事件，拒绝未拥有的指标字段。
 
-favorites 只发送 favorites。事件类型为 discovery.activity.v1，source 固定为 favorites，target.source 固定为 catalog。活动 ID 为 kind/base64url(规范对象 ID)/UTC 日期，base64url 不带填充，subject 等于活动 ID。
+favorites 只发送 favorites。事件类型为 discovery.activity.v1，source 固定为 favorites，target.source 固定为 catalog。活动 ID 为 kind/base64url(规范对象 ID)/UTC 日期，总长不超过 512 字符，目标按 200 码点且无控制符校验，subject 等于活动 ID。
 
 每个对象日维护独立单调修订。事件完整替换日快照，零值显式发送；零计数墓碑不会被迟到事件重新计数。事件、计数和修订历史在同一业务事务提交，并调用 pg_notify('favorites_outbox', '')。
 

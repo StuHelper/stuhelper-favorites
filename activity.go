@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // Activity is one complete provider-owned UTC daily snapshot, including zeros.
@@ -32,19 +31,23 @@ func ActivityID(kind, id string, day time.Time) string {
 	return kind + "/" + base64.RawURLEncoding.EncodeToString([]byte(id)) + "/" + day.UTC().Format(time.DateOnly)
 }
 func ParseActivityID(id string) (ActivityTarget, time.Time, error) {
+	if len(id) == 0 || len(id) > 512 {
+		return ActivityTarget{}, time.Time{}, ErrInput
+	}
 	parts := strings.Split(id, "/")
 	if len(parts) != 3 || (parts[0] != "course" && parts[0] != "teacher") {
 		return ActivityTarget{}, time.Time{}, ErrInput
 	}
 	raw, e := base64.RawURLEncoding.Strict().DecodeString(parts[1])
-	if e != nil || len(raw) == 0 || len(raw) > 200 || !utf8.Valid(raw) {
+	target := string(raw)
+	if e != nil || !valid(target, 200) {
 		return ActivityTarget{}, time.Time{}, ErrInput
 	}
 	day, e := time.Parse(time.DateOnly, parts[2])
-	if e != nil || id != ActivityID(parts[0], string(raw), day) {
+	if e != nil || id != ActivityID(parts[0], target, day) {
 		return ActivityTarget{}, time.Time{}, ErrInput
 	}
-	return ActivityTarget{Source: "catalog", Kind: parts[0], ID: string(raw)}, day, nil
+	return ActivityTarget{Source: "catalog", Kind: parts[0], ID: target}, day, nil
 }
 func ActivityDay(t time.Time) bool {
 	_, offset := t.Zone()
