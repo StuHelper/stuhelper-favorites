@@ -246,6 +246,20 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 			if !needResolve {
 				return Item{}, errRetryResolve
 			}
+			if lookup, ok := tx.(interface {
+				CanonicalTarget(string, string) (Item, error)
+			}); ok {
+				old, e := lookup.CanonicalTarget(in.Kind, resolved.ID)
+				if e == nil {
+					if in.FolderID != "" && in.FolderID != old.FolderID {
+						return old, ErrConflict
+					}
+					return old, nil
+				}
+				if !errors.Is(e, ErrNotFound) {
+					return Item{}, e
+				}
+			}
 			v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
 			return v, tx.SaveItem(v)
 		})

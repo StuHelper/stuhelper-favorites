@@ -164,6 +164,9 @@ func (t *transaction) Item(id string) (f.Item, error) {
 func (t *transaction) Target(kind, target string) (f.Item, error) {
 	return item(t.tx.QueryRowContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND kind=$2 AND target_id=$3`, t.owner, kind, target))
 }
+func (t *transaction) CanonicalTarget(kind, canonical string) (f.Item, error) {
+	return item(t.tx.QueryRowContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND kind=$2 AND canonical_target_id=$3`, t.owner, kind, canonical))
+}
 func (t *transaction) Items(filter f.Filter, pos f.Position) ([]f.Item, error) {
 	order := `created_at DESC,id`
 	page := `($5='' OR created_at<$6 OR (created_at=$6 AND id>$5))`
@@ -187,22 +190,26 @@ func (t *transaction) Items(filter f.Filter, pos f.Position) ([]f.Item, error) {
 	return out, safe(rows.Err())
 }
 func (t *transaction) SaveItem(v f.Item) error {
+	canonical := v.CanonicalTargetID
+	if canonical == "" {
+		canonical = v.TargetID
+	}
 	var exists bool
 	if e := t.tx.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM favorites.items WHERE owner_key=$1 AND id=$2)`, t.owner, v.ID).Scan(&exists); e != nil {
 		return safe(e)
 	}
-	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(owner_key,id) DO UPDATE SET folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt, v.CanonicalTargetID)
+	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.items(owner_key,`+columns+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(owner_key,id) DO UPDATE SET folder_id=EXCLUDED.folder_id,revision=EXCLUDED.revision`, t.owner, v.ID, v.Kind, v.TargetID, v.Title, v.FolderID, v.Revision, v.CreatedAt, canonical)
 	if e != nil {
 		return safe(e)
 	}
 	if !exists && (v.Kind == "course" || v.Kind == "teacher") {
-		return t.changeActivity(v.Kind, v.CanonicalTargetID, "", v.CreatedAt, 1, 0, nil, v.CreatedAt)
+		return t.changeActivity(v.Kind, canonical, "", v.CreatedAt, 1, 0, nil, v.CreatedAt)
 	}
 	return nil
 }
 func (t *transaction) DeleteItem(id string, at time.Time) error {
 	var kind, target string
-	e := t.tx.QueryRowContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=$2 RETURNING kind,canonical_target_id`, t.owner, id).Scan(&kind, &target)
+	e := t.tx.QueryRowContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=$2 RETURNING kind,COALESCE(NULLIF(canonical_target_id,''),target_id)`, t.owner, id).Scan(&kind, &target)
 	if e != nil {
 		return safe(e)
 	}
