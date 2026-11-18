@@ -142,7 +142,29 @@ func (s *Service) ListFolders(ctx context.Context, owner, after string, limit in
 	if e := s.ensure(ctx, owner); e != nil {
 		return out, e
 	}
-	e := s.Repo.Transaction(ctx, owner, func(tx Transaction) error { var e error; out.Items, e = tx.Folders(after, limit+1); return e })
+	var e error
+	if reader, ok := s.Repo.(interface {
+		ReadFolders(context.Context, string, string, int) ([]Folder, bool, error)
+	}); ok {
+		var initialized bool
+		out.Items, initialized, e = reader.ReadFolders(ctx, owner, after, limit+1)
+		if e != nil {
+			return out, e
+		}
+		if !initialized {
+			e = s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
+				var txErr error
+				out.Items, txErr = tx.Folders(after, limit+1)
+				return txErr
+			})
+		}
+	} else {
+		e = s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
+			var txErr error
+			out.Items, txErr = tx.Folders(after, limit+1)
+			return txErr
+		})
+	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
 		out.Next = out.Items[limit-1].ID
@@ -153,41 +175,89 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 	if !kind(in.Kind) || !valid(in.TargetID, 200) || in.FolderID != "" && !valid(in.FolderID, 200) {
 		return Item{}, ErrInput
 	}
-	return mutation(ctx, s, owner, key, "item.add", in, func(tx Transaction) (Item, error) {
-		old, e := tx.Target(in.Kind, in.TargetID)
-		if e == nil {
-			if in.FolderID != "" && in.FolderID != old.FolderID {
-				return old, ErrConflict
-			}
-			return old, nil
+	if !valid(owner, 2048) {
+		return Item{}, ErrUnauthenticated
+	}
+	if !valid(key, 128) {
+		return Item{}, ErrInput
+	}
+	if e := s.ensure(ctx, owner); e != nil {
+		return Item{}, e
+	}
+	// A replay or an existing item can be handled without a source call. The
+	// transaction makes the final decision, including whether a receipt is still live.
+	needResolve := false
+	if prechecker, ok := s.Repo.(interface {
+		NeedsTargetResolution(context.Context, string, string, Add) (bool, error)
+	}); ok {
+		var err error
+		needResolve, err = prechecker.NeedsTargetResolution(ctx, owner, key, in)
+		if err != nil {
+			return Item{}, err
 		}
-		if !errors.Is(e, ErrNotFound) {
-			return Item{}, e
-		}
-		var folder Folder
-		if in.FolderID == "" {
-			folder, e = tx.DefaultFolder()
-		} else {
-			folder, e = tx.Folder(in.FolderID)
-		}
-		if e != nil {
-			return Item{}, e
-		}
+	}
+	var resolved ResolvedTarget
+	resolveTarget := func() error {
 		if s.Source == nil {
-			return Item{}, ErrUnavailable
+			return ErrUnavailable
 		}
 		call, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		resolved, e := s.Source.Resolve(call, owner, in.Kind, in.TargetID)
+		var e error
+		resolved, e = s.Source.Resolve(call, owner, in.Kind, in.TargetID)
 		if e != nil {
-			return Item{}, e
+			if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
+				return ErrUnavailable
+			}
+			return e
 		}
 		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != in.Kind {
-			return Item{}, ErrUnavailable
+			return ErrUnavailable
 		}
-		v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
-		return v, tx.SaveItem(v)
-	})
+		return nil
+	}
+	if needResolve {
+		if e := resolveTarget(); e != nil {
+			return Item{}, e
+		}
+	}
+	errRetryResolve := errors.New("retry_resolve")
+	for range 2 {
+		item, e := mutation(ctx, s, owner, key, "item.add", in, func(tx Transaction) (Item, error) {
+			old, e := tx.Target(in.Kind, in.TargetID)
+			if e == nil {
+				if in.FolderID != "" && in.FolderID != old.FolderID {
+					return old, ErrConflict
+				}
+				return old, nil
+			}
+			if !errors.Is(e, ErrNotFound) {
+				return Item{}, e
+			}
+			var folder Folder
+			if in.FolderID == "" {
+				folder, e = tx.DefaultFolder()
+			} else {
+				folder, e = tx.Folder(in.FolderID)
+			}
+			if e != nil {
+				return Item{}, e
+			}
+			if !needResolve {
+				return Item{}, errRetryResolve
+			}
+			v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
+			return v, tx.SaveItem(v)
+		})
+		if !errors.Is(e, errRetryResolve) {
+			return item, e
+		}
+		needResolve = true
+		if e := resolveTarget(); e != nil {
+			return Item{}, e
+		}
+	}
+	return Item{}, ErrUnavailable
 }
 func (s *Service) Move(ctx context.Context, owner, key, item string, in Move) (Item, error) {
 	if !valid(item, 200) || !valid(in.FolderID, 200) || in.Revision < 1 {
@@ -260,17 +330,24 @@ func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, erro
 	if e := s.ensure(ctx, owner); e != nil {
 		return out, e
 	}
-	e := s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
-		if f.FolderID != "" {
-			if _, e := tx.Folder(f.FolderID); e != nil {
-				return e
+	f.Limit++
+	var e error
+	if reader, ok := s.Repo.(interface {
+		ReadItems(context.Context, string, Filter, Position) ([]Item, error)
+	}); ok {
+		out.Items, e = reader.ReadItems(ctx, owner, f, pos)
+	} else {
+		e = s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
+			if f.FolderID != "" {
+				if _, txErr := tx.Folder(f.FolderID); txErr != nil {
+					return txErr
+				}
 			}
-		}
-		var e error
-		f.Limit++
-		out.Items, e = tx.Items(f, pos)
-		return e
-	})
+			var txErr error
+			out.Items, txErr = tx.Items(f, pos)
+			return txErr
+		})
+	}
 	if len(out.Items) >= f.Limit {
 		out.Items = out.Items[:f.Limit-1]
 		v := out.Items[len(out.Items)-1]
