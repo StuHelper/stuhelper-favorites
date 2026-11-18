@@ -63,6 +63,9 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		limit := 30
+		if parts[0] == "export" {
+			limit = 200
+		}
 		if q.Has("limit") {
 			if len(q["limit"]) != 1 {
 				failure(w, f.ErrInput)
@@ -96,6 +99,12 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.List(ctx, owner, f.Filter{TargetIDs: targets, After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
+		case "export":
+			if !singleQuery(q, "folder_id", "kind", "after", "limit") {
+				failure(w, f.ErrInput)
+				return
+			}
+			out, e = h.Service.Export(ctx, owner, f.ExportFilter{FolderID: q.Get("folder_id"), Kind: q.Get("kind"), After: q.Get("after"), Limit: limit})
 		default:
 			e = f.ErrNotFound
 		}

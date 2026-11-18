@@ -1385,6 +1385,113 @@
           }
         }
       }
+    },
+    "/api/v1/favorites/export": {
+      "get": {
+        "operationId": "exportFavorites",
+        "description": "Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders.",
+        "parameters": [
+          {
+            "name": "folder_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "course",
+                "teacher",
+                "resource"
+              ]
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "description": "Maximum number of folders and maximum number of items per page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned folder not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1771,6 +1878,89 @@
         "required": [
           "ids",
           "removed_count"
+        ]
+      },
+      "ExportItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "course",
+              "teacher",
+              "resource"
+            ]
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "canonical_target_id": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string",
+            "description": "Canonical application path (/courses/{id}, /teachers/{id}, or /resources/items/{id})."
+          },
+          "title": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": "string"
+          },
+          "folder_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "target_id",
+          "canonical_target_id",
+          "target_path",
+          "title",
+          "folder_id",
+          "folder_name",
+          "created_at"
+        ]
+      },
+      "Export": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "exported_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            },
+            "maxItems": 500
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExportItem"
+            },
+            "maxItems": 500
+          },
+          "next": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exported_at",
+          "folders",
+          "items"
         ]
       }
     }
