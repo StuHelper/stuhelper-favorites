@@ -5,7 +5,9 @@ import (
 	"errors"
 	f "github.com/StuHelper/stuhelper-favorites"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -18,6 +20,7 @@ type Handler struct {
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if h.Service == nil || h.Authenticate == nil {
 		failure(w, f.ErrUnavailable)
 		return
@@ -31,15 +34,40 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, f.ErrUnauthenticated)
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/favorites/")
-	parts := strings.Split(path, "/")
+	escaped := r.URL.EscapedPath()
+	if !strings.HasPrefix(r.URL.Path, "/api/v1/favorites/") || !strings.HasPrefix(escaped, "/api/v1/favorites/") {
+		failure(w, f.ErrNotFound)
+		return
+	}
+	rawParts := strings.Split(strings.TrimPrefix(escaped, "/api/v1/favorites/"), "/")
+	parts := make([]string, len(rawParts))
+	for i, p := range rawParts {
+		unescaped, err := url.PathUnescape(p)
+		if err != nil {
+			failure(w, f.ErrInput)
+			return
+		}
+		parts[i] = unescaped
+	}
+	if len(r.Header.Values("Idempotency-Key")) > 1 {
+		failure(w, f.ErrInput)
+		return
+	}
 	key := r.Header.Get("Idempotency-Key")
 	ctx := r.Context()
 	var out any
 	if r.Method == http.MethodGet && len(parts) == 1 {
-		q := r.URL.Query()
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			failure(w, f.ErrInput)
+			return
+		}
 		limit := 30
 		if q.Has("limit") {
+			if len(q["limit"]) != 1 {
+				failure(w, f.ErrInput)
+				return
+			}
 			limit, e = strconv.Atoi(q.Get("limit"))
 			if e != nil {
 				failure(w, f.ErrInput)
@@ -48,15 +76,24 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch parts[0] {
 		case "folders":
+			if !singleQuery(q, "after", "limit") {
+				failure(w, f.ErrInput)
+				return
+			}
 			out, e = h.Service.ListFolders(ctx, owner, q.Get("after"), limit)
 		case "items":
-			var targets []string
-			if q.Has("target_ids") {
-				if len(q["target_ids"]) != 1 || len(q.Get("target_ids")) > 80100 {
-					failure(w, f.ErrInput)
-					return
-				}
-				targets = strings.Split(q.Get("target_ids"), ",")
+			if !singleQuery(q, "after", "limit", "kind", "folder_id", "q", "sort") {
+				failure(w, f.ErrInput)
+				return
+			}
+			if len(q.Get("target_ids")) > 80100 {
+				failure(w, f.ErrInput)
+				return
+			}
+			targets, ok := parseTargetIDs(r.URL.RawQuery)
+			if !ok {
+				failure(w, f.ErrInput)
+				return
 			}
 			out, e = h.Service.List(ctx, owner, f.Filter{TargetIDs: targets, After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
 		default:
@@ -119,7 +156,64 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(out)
 }
+func singleQuery(q url.Values, names ...string) bool {
+	for _, name := range names {
+		if len(q[name]) > 1 {
+			return false
+		}
+	}
+	return true
+}
+func parseTargetIDs(rawQuery string) ([]string, bool) {
+	var raw string
+	found := false
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(pair, "=")
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			return nil, false
+		}
+		if key != "target_ids" {
+			continue
+		}
+		if found {
+			return nil, false
+		}
+		found = true
+		raw = v
+	}
+	if !found {
+		return nil, true
+	}
+	parts := strings.SplitN(raw, ",", 101)
+	if len(parts) > 100 {
+		return nil, false
+	}
+	out := make([]string, len(parts))
+	for i, item := range parts {
+		unescaped, err := url.QueryUnescape(item)
+		if err != nil {
+			return nil, false
+		}
+		out[i] = unescaped
+	}
+	return out, true
+}
 func decode(w http.ResponseWriter, r *http.Request, v any) error {
+	if len(r.Header.Values("Content-Type")) > 1 {
+		failure(w, f.ErrInput)
+		return f.ErrInput
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		failure(w, f.ErrInput)
+		return f.ErrInput
+	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	decoder.DisallowUnknownFields()
 	e := decoder.Decode(v)

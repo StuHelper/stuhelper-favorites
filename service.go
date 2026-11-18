@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 type Service struct {
@@ -28,7 +30,27 @@ func (s *Service) now() time.Time {
 	return time.Now().UTC()
 }
 func valid(s string, max int) bool {
-	return s != "" && utf8.ValidString(s) && utf8.RuneCountInString(s) <= max && !strings.ContainsFunc(s, unicode.IsControl)
+	return s != "" && utf8.ValidString(s) && utf8.RuneCountInString(s) <= max && !strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.In(r, unicode.Zl, unicode.Zp, unicode.Cs)
+	})
+}
+func validKey(s string) bool {
+	if len(s) == 0 || len(s) > 128 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x21 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+func normalizeFolderName(raw string) (string, bool) {
+	name := strings.TrimSpace(norm.NFC.String(raw))
+	if !valid(name, 20) || strings.ContainsFunc(name, func(r rune) bool { return unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Cs) }) {
+		return "", false
+	}
+	return name, true
 }
 func kind(s string) bool { return s == "course" || s == "teacher" || s == "resource" }
 func id() string {
@@ -44,11 +66,14 @@ func digest(v any) string {
 	return hex.EncodeToString(h[:])
 }
 func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in any, run func(Transaction) (T, error)) (T, error) {
+	return mutationWithLegacyInput(ctx, s, owner, key, op, in, nil, run)
+}
+func mutationWithLegacyInput[T any](ctx context.Context, s *Service, owner, key, op string, in, legacy any, run func(Transaction) (T, error)) (T, error) {
 	var out T
 	if !valid(owner, 2048) {
 		return out, ErrUnauthenticated
 	}
-	if !valid(key, 128) {
+	if !validKey(key) {
 		return out, ErrInput
 	}
 	if e := s.ensure(ctx, owner); e != nil {
@@ -58,7 +83,8 @@ func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in 
 	e := s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
 		saved, b, e := tx.Replay(key)
 		if e == nil {
-			if saved != h {
+			// Receipts written before folder names were normalized hashed the trimmed input.
+			if saved != h && (legacy == nil || saved != digest([]any{op, legacy})) {
 				return ErrConflict
 			}
 			if json.Unmarshal(b, &out) != nil {
@@ -85,21 +111,24 @@ func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in 
 	return out, e
 }
 func (s *Service) CreateFolder(ctx context.Context, owner, key, name string) (Folder, error) {
-	name = strings.TrimSpace(name)
-	if !valid(name, 20) {
+	normalized, ok := normalizeFolderName(name)
+	if !ok {
 		return Folder{}, ErrInput
 	}
-	return mutation(ctx, s, owner, key, "folder.create", name, func(tx Transaction) (Folder, error) {
-		v := Folder{ID: id(), Name: name, Revision: 1}
+	return mutationWithLegacyInput(ctx, s, owner, key, "folder.create", normalized, strings.TrimSpace(name), func(tx Transaction) (Folder, error) {
+		v := Folder{ID: id(), Name: normalized, Revision: 1}
 		return v, tx.SaveFolder(v)
 	})
 }
 func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, in Rename) (Folder, error) {
-	in.Name = strings.TrimSpace(in.Name)
-	if !valid(folder, 200) || !valid(in.Name, 20) || in.Revision < 1 {
+	normalized, ok := normalizeFolderName(in.Name)
+	if !valid(folder, 200) || !ok || in.Revision < 1 {
 		return Folder{}, ErrInput
 	}
-	return mutation(ctx, s, owner, key, "folder.rename", []any{folder, in}, func(tx Transaction) (Folder, error) {
+	legacy := in
+	legacy.Name = strings.TrimSpace(in.Name)
+	in.Name = normalized
+	return mutationWithLegacyInput(ctx, s, owner, key, "folder.rename", []any{folder, in}, []any{folder, legacy}, func(tx Transaction) (Folder, error) {
 		v, e := tx.Folder(folder)
 		if e != nil {
 			return v, e
@@ -172,13 +201,13 @@ func (s *Service) ListFolders(ctx context.Context, owner, after string, limit in
 	return out, e
 }
 func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, error) {
-	if !kind(in.Kind) || !valid(in.TargetID, 200) || in.FolderID != "" && !valid(in.FolderID, 200) {
+	if !kind(in.Kind) || !valid(in.TargetID, 200) || strings.TrimSpace(in.TargetID) != in.TargetID || in.FolderID != "" && (!valid(in.FolderID, 200) || strings.TrimSpace(in.FolderID) != in.FolderID) {
 		return Item{}, ErrInput
 	}
 	if !valid(owner, 2048) {
 		return Item{}, ErrUnauthenticated
 	}
-	if !valid(key, 128) {
+	if !validKey(key) {
 		return Item{}, ErrInput
 	}
 	if e := s.ensure(ctx, owner); e != nil {

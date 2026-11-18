@@ -12,6 +12,9 @@ func (r *Repository) PendingOutbox(ctx context.Context, limit int, excludeSubjec
 	if limit < 1 || limit > 100 || len(excludeSubjects) > 1000 {
 		return nil, m.ErrInput
 	}
+	if !r.readyDB() {
+		return nil, m.ErrUnavailable
+	}
 	rows, e := r.DB.QueryContext(ctx, `SELECT data FROM favorites.outbox WHERE sent_at IS NULL AND NOT ((data->>'subject')=ANY(COALESCE($2::text[],ARRAY[]::text[]))) ORDER BY (data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq LIMIT $1`, limit, excludeSubjects)
 	if e != nil {
 		return nil, safe(e)
@@ -31,6 +34,9 @@ func (r *Repository) PendingOutbox(ctx context.Context, limit int, excludeSubjec
 func (r *Repository) ConfirmOutbox(ctx context.Context, id string) error {
 	if id == "" || len(id) > 200 {
 		return m.ErrInput
+	}
+	if !r.readyDB() {
+		return m.ErrUnavailable
 	}
 	res, e := r.DB.ExecContext(ctx, `UPDATE favorites.outbox SET sent_at=COALESCE(sent_at,now()) WHERE id=$1`, id)
 	if e != nil {

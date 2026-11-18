@@ -16,6 +16,9 @@ import (
 var Schema string
 
 type Repository struct{ DB *sql.DB }
+
+func (r *Repository) readyDB() bool { return r != nil && r.DB != nil }
+
 type transaction struct {
 	ctx   context.Context
 	tx    *sql.Tx
@@ -39,6 +42,9 @@ func safe(e error) error {
 	return f.ErrUnavailable
 }
 func Migrate(ctx context.Context, db *sql.DB) error {
+	if db == nil {
+		return f.ErrUnavailable
+	}
 	tx, e := db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
@@ -53,6 +59,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 func (r *Repository) Ready(ctx context.Context) error {
+	if !r.readyDB() {
+		return f.ErrUnavailable
+	}
 	var exists bool
 	e := r.DB.QueryRowContext(ctx, `SELECT to_regclass('favorites.items') IS NOT NULL AND to_regclass('favorites.owners') IS NOT NULL`).Scan(&exists)
 	if e != nil || !exists {
@@ -61,6 +70,9 @@ func (r *Repository) Ready(ctx context.Context) error {
 	return nil
 }
 func (r *Repository) CheckRuntime(ctx context.Context) error {
+	if !r.readyDB() {
+		return f.ErrUnavailable
+	}
 	var unsafe bool
 	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb OR has_schema_privilege(current_user,'favorites','CREATE') OR has_table_privilege(current_user,'favorites.events','UPDATE,DELETE') OR has_table_privilege(current_user,'favorites.requests','UPDATE') FROM pg_roles WHERE rolname=current_user`).Scan(&unsafe)
 	if e != nil || unsafe {
@@ -69,6 +81,9 @@ func (r *Repository) CheckRuntime(ctx context.Context) error {
 	return r.Ready(ctx)
 }
 func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.Transaction) error) error {
+	if !r.readyDB() {
+		return f.ErrUnavailable
+	}
 	tx, e := r.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return safe(e)
@@ -219,6 +234,9 @@ func (t *transaction) DeleteItem(id string, at time.Time) error {
 	return nil
 }
 func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []string) ([]string, error) {
+	if !r.readyDB() {
+		return nil, f.ErrUnavailable
+	}
 	rows, e := r.DB.QueryContext(ctx, `SELECT DISTINCT target_id FROM favorites.items WHERE owner_key=$1 AND kind='course' AND target_id=ANY($2::text[]) ORDER BY target_id`, owner, ids)
 	if e != nil {
 		return nil, safe(e)

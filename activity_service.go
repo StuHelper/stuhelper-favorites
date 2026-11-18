@@ -24,6 +24,9 @@ func (s *Service) CurrentActivity(ctx context.Context, principal, id string) (Ac
 	if errors.Is(e, ErrForbidden) || errors.Is(e, ErrNotFound) {
 		return empty, false, nil
 	} else if e != nil {
+		if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
+			return empty, false, ErrUnavailable
+		}
 		return empty, false, e
 	}
 	if !valid(resolved.ID, 200) || !valid(resolved.Title, 500) || (resolved.Kind != "course" && resolved.Kind != "teacher") {

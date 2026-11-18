@@ -1,6 +1,9 @@
 package favorites
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 func (s *Service) ensure(_ context.Context, owner string) error {
 	if !valid(owner, 2048) {
@@ -17,7 +20,7 @@ func (s *Service) CourseReferences(ctx context.Context, owner string, ids []stri
 		return nil, ErrInput
 	}
 	for _, id := range ids {
-		if !valid(id, 200) {
+		if !valid(id, 200) || strings.TrimSpace(id) != id {
 			return nil, ErrInput
 		}
 	}
