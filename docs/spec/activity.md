@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # 热门活动来源
@@ -49,6 +49,8 @@ OutboxChannel 为 favorites_outbox。PendingOutbox(ctx, limit, excludeSubjects) 
 ## 清理、权限与验证
 
 PruneActivityHistory(ctx, beforeDay, limit) 每次最多删除 1000 条旧修订，保留每个对象日的最新修订和墓碑。清理在同一事务提高保留修订号，已有分页游标失效，调用方须中止重建。
+
+一条 UPDATE 或 DELETE 语句实际影响历史记录时，保留版本只增加一次。空清理保留当前版本。固定快照使用 REPEATABLE READ，日期范围查询可使用现有的 (day, id, revision) 索引。
 
 运行身份需要 activity_buckets 的读写、activity_history 的读取和追加、activity_retention 的读取，以及 outbox 的读写确认权限。历史删除权限只授予负责清理的身份。当前日快照和最新墓碑不自动删除。
 

@@ -25,6 +25,8 @@ specifications:
   - docs/spec/activity.md
 scenario_tests:
   FAV-ACTIVITY-01:
+    - history_epoch_test.go#TestHistoryPruneAdvancesOnceForNonemptyBatch
+    - history_epoch_test.go#TestRepeatableReadKeepsSnapshotAcrossConcurrentCommit
     - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
