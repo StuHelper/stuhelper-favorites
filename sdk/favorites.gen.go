@@ -129,6 +129,23 @@ type Add struct {
 // AddKind defines model for Add.Kind.
 type AddKind string
 
+// BatchMove defines model for BatchMove.
+type BatchMove struct {
+	FolderId string   `json:"folder_id"`
+	Ids      []string `json:"ids"`
+}
+
+// BatchRemove defines model for BatchRemove.
+type BatchRemove struct {
+	Ids []string `json:"ids"`
+}
+
+// BatchRemoved defines model for BatchRemoved.
+type BatchRemoved struct {
+	Ids          []string `json:"ids"`
+	RemovedCount int64    `json:"removed_count"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Code string `json:"code"`
@@ -265,6 +282,16 @@ type AddFavoriteParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
+// BatchMoveFavoritesParams defines parameters for BatchMoveFavorites.
+type BatchMoveFavoritesParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// BatchRemoveFavoritesParams defines parameters for BatchRemoveFavorites.
+type BatchRemoveFavoritesParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
 // MoveFavoriteParams defines parameters for MoveFavorite.
 type MoveFavoriteParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
@@ -296,6 +323,12 @@ type RenameFolderJSONRequestBody = Rename
 
 // AddFavoriteJSONRequestBody defines body for AddFavorite for application/json ContentType.
 type AddFavoriteJSONRequestBody = Add
+
+// BatchMoveFavoritesJSONRequestBody defines body for BatchMoveFavorites for application/json ContentType.
+type BatchMoveFavoritesJSONRequestBody = BatchMove
+
+// BatchRemoveFavoritesJSONRequestBody defines body for BatchRemoveFavorites for application/json ContentType.
+type BatchRemoveFavoritesJSONRequestBody = BatchRemove
 
 // MoveFavoriteJSONRequestBody defines body for MoveFavorite for application/json ContentType.
 type MoveFavoriteJSONRequestBody = Move
@@ -422,6 +455,30 @@ type ClientInterface interface {
 	// AddFavorite performs a POST /api/v1/favorites/items (the `AddFavorite` operationId) request.
 	// Takes a body of the `application/json` content type.
 	AddFavorite(ctx context.Context, params *AddFavoriteParams, body AddFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BatchMoveFavoritesWithBody performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+	BatchMoveFavoritesWithBody(ctx context.Context, params *BatchMoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BatchMoveFavorites performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+	BatchMoveFavorites(ctx context.Context, params *BatchMoveFavoritesParams, body BatchMoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BatchRemoveFavoritesWithBody performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+	BatchRemoveFavoritesWithBody(ctx context.Context, params *BatchRemoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BatchRemoveFavorites performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+	BatchRemoveFavorites(ctx context.Context, params *BatchRemoveFavoritesParams, body BatchRemoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// MoveFavoriteWithBody performs a POST /api/v1/favorites/items/{id}/move (the `MoveFavorite` operationId) request,
 	// with any type of body and a specified content type.
@@ -594,6 +651,70 @@ func (c *Client) AddFavoriteWithBody(ctx context.Context, params *AddFavoritePar
 // Takes a body of the `application/json` content type.
 func (c *Client) AddFavorite(ctx context.Context, params *AddFavoriteParams, body AddFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAddFavoriteRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BatchMoveFavoritesWithBody performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request,
+// with any type of body and a specified content type.
+//
+// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+func (c *Client) BatchMoveFavoritesWithBody(ctx context.Context, params *BatchMoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchMoveFavoritesRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BatchMoveFavorites performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+func (c *Client) BatchMoveFavorites(ctx context.Context, params *BatchMoveFavoritesParams, body BatchMoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchMoveFavoritesRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BatchRemoveFavoritesWithBody performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request,
+// with any type of body and a specified content type.
+//
+// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+func (c *Client) BatchRemoveFavoritesWithBody(ctx context.Context, params *BatchRemoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchRemoveFavoritesRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BatchRemoveFavorites performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+func (c *Client) BatchRemoveFavorites(ctx context.Context, params *BatchRemoveFavoritesParams, body BatchRemoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBatchRemoveFavoritesRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1142,6 +1263,112 @@ func NewAddFavoriteRequestWithBody(server string, params *AddFavoriteParams, con
 	return req, nil
 }
 
+// NewBatchMoveFavoritesRequest calls the generic BatchMoveFavorites builder with application/json body
+func NewBatchMoveFavoritesRequest(server string, params *BatchMoveFavoritesParams, body BatchMoveFavoritesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBatchMoveFavoritesRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewBatchMoveFavoritesRequestWithBody constructs an http.Request for the BatchMoveFavorites method, with any body, and a specified content type
+func NewBatchMoveFavoritesRequestWithBody(server string, params *BatchMoveFavoritesParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/items/batch-move")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewBatchRemoveFavoritesRequest calls the generic BatchRemoveFavorites builder with application/json body
+func NewBatchRemoveFavoritesRequest(server string, params *BatchRemoveFavoritesParams, body BatchRemoveFavoritesJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBatchRemoveFavoritesRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewBatchRemoveFavoritesRequestWithBody constructs an http.Request for the BatchRemoveFavorites method, with any body, and a specified content type
+func NewBatchRemoveFavoritesRequestWithBody(server string, params *BatchRemoveFavoritesParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/items/batch-remove")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewMoveFavoriteRequest calls the generic MoveFavorite builder with application/json body
 func NewMoveFavoriteRequest(server string, id string, params *MoveFavoriteParams, body MoveFavoriteJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1463,6 +1690,34 @@ type ClientWithResponsesInterface interface {
 	// AddFavoriteWithResponse performs a POST /api/v1/favorites/items (the `AddFavorite` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	AddFavoriteWithResponse(ctx context.Context, params *AddFavoriteParams, body AddFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFavoriteResponse, error)
+
+	// BatchMoveFavoritesWithBodyWithResponse performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	BatchMoveFavoritesWithBodyWithResponse(ctx context.Context, params *BatchMoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchMoveFavoritesResponse, error)
+
+	// BatchMoveFavoritesWithResponse performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+	BatchMoveFavoritesWithResponse(ctx context.Context, params *BatchMoveFavoritesParams, body BatchMoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchMoveFavoritesResponse, error)
+
+	// BatchRemoveFavoritesWithBodyWithResponse performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	BatchRemoveFavoritesWithBodyWithResponse(ctx context.Context, params *BatchRemoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchRemoveFavoritesResponse, error)
+
+	// BatchRemoveFavoritesWithResponse performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+	BatchRemoveFavoritesWithResponse(ctx context.Context, params *BatchRemoveFavoritesParams, body BatchRemoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchRemoveFavoritesResponse, error)
 
 	// MoveFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/items/{id}/move (the `MoveFavorite` operationId) request,
 	// with any type of body and a specified content type.
@@ -2011,6 +2266,172 @@ func (r AddFavoriteResponse) ContentType() string {
 	return ""
 }
 
+type BatchMoveFavoritesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Items
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON200() *Items {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r BatchMoveFavoritesResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r BatchMoveFavoritesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r BatchMoveFavoritesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BatchMoveFavoritesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BatchMoveFavoritesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type BatchRemoveFavoritesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BatchRemoved
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON200() *BatchRemoved {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r BatchRemoveFavoritesResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r BatchRemoveFavoritesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r BatchRemoveFavoritesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BatchRemoveFavoritesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BatchRemoveFavoritesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type MoveFavoriteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2453,6 +2874,58 @@ func (c *ClientWithResponses) AddFavoriteWithResponse(ctx context.Context, param
 		return nil, err
 	}
 	return ParseAddFavoriteResponse(rsp)
+}
+
+// BatchMoveFavoritesWithBodyWithResponse performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request,
+// with any type of body and a specified content type.
+//
+// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) BatchMoveFavoritesWithBodyWithResponse(ctx context.Context, params *BatchMoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchMoveFavoritesResponse, error) {
+	rsp, err := c.BatchMoveFavoritesWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchMoveFavoritesResponse(rsp)
+}
+
+// BatchMoveFavoritesWithResponse performs a POST /api/v1/favorites/items/batch-move (the `BatchMoveFavorites` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Atomically move up to 100 own favorite items to a target folder in one transaction. Rolls back completely with 404 if the target folder or any item ID is not owned.
+func (c *ClientWithResponses) BatchMoveFavoritesWithResponse(ctx context.Context, params *BatchMoveFavoritesParams, body BatchMoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchMoveFavoritesResponse, error) {
+	rsp, err := c.BatchMoveFavorites(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchMoveFavoritesResponse(rsp)
+}
+
+// BatchRemoveFavoritesWithBodyWithResponse performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request,
+// with any type of body and a specified content type.
+//
+// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) BatchRemoveFavoritesWithBodyWithResponse(ctx context.Context, params *BatchRemoveFavoritesParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BatchRemoveFavoritesResponse, error) {
+	rsp, err := c.BatchRemoveFavoritesWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchRemoveFavoritesResponse(rsp)
+}
+
+// BatchRemoveFavoritesWithResponse performs a POST /api/v1/favorites/items/batch-remove (the `BatchRemoveFavorites` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Atomically remove up to 100 own favorite items in one transaction, coalescing daily activity net changes per canonical target.
+func (c *ClientWithResponses) BatchRemoveFavoritesWithResponse(ctx context.Context, params *BatchRemoveFavoritesParams, body BatchRemoveFavoritesJSONRequestBody, reqEditors ...RequestEditorFn) (*BatchRemoveFavoritesResponse, error) {
+	rsp, err := c.BatchRemoveFavorites(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBatchRemoveFavoritesResponse(rsp)
 }
 
 // MoveFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/items/{id}/move (the `MoveFavorite` operationId) request,
@@ -2907,6 +3380,142 @@ func ParseAddFavoriteResponse(rsp *http.Response) (*AddFavoriteResponse, error) 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Item
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseBatchMoveFavoritesResponse parses an HTTP response from a BatchMoveFavoritesWithResponse call
+func ParseBatchMoveFavoritesResponse(rsp *http.Response) (*BatchMoveFavoritesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BatchMoveFavoritesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Items
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseBatchRemoveFavoritesResponse parses an HTTP response from a BatchRemoveFavoritesWithResponse call
+func ParseBatchRemoveFavoritesResponse(rsp *http.Response) (*BatchRemoveFavoritesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BatchRemoveFavoritesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BatchRemoved
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

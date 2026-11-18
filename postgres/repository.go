@@ -9,6 +9,7 @@ import (
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -209,6 +210,11 @@ func folder(row scanner) (f.Folder, error) {
 func (t *transaction) Folder(id string) (f.Folder, error) {
 	return folder(t.tx.QueryRowContext(t.ctx, `WITH counts AS (SELECT count(*) AS total,count(*) FILTER(WHERE kind='course') AS course_count,count(*) FILTER(WHERE kind='teacher') AS teacher_count,count(*) FILTER(WHERE kind='resource') AS resource_count FROM favorites.items WHERE owner_key=$1 AND folder_id=$2) SELECT f.id,f.name,f.is_default,f.revision,f.position,f.created_at,c.total,c.course_count,c.teacher_count,c.resource_count FROM favorites.folders f CROSS JOIN counts c WHERE f.owner_key=$1 AND f.id=$2`, t.owner, id))
 }
+func (t *transaction) FolderCount() (int, error) {
+	var n int
+	e := t.tx.QueryRowContext(t.ctx, `SELECT count(*) FROM favorites.folders WHERE owner_key=$1`, t.owner).Scan(&n)
+	return n, safe(e)
+}
 func (t *transaction) DefaultFolder() (f.Folder, error) {
 	return folder(t.tx.QueryRowContext(t.ctx, `WITH target AS (SELECT id,name,is_default,revision,position,created_at FROM favorites.folders WHERE owner_key=$1 AND is_default),counts AS (SELECT count(*) AS total,count(*) FILTER(WHERE kind='course') AS course_count,count(*) FILTER(WHERE kind='teacher') AS teacher_count,count(*) FILTER(WHERE kind='resource') AS resource_count FROM favorites.items WHERE owner_key=$1 AND folder_id=(SELECT id FROM target)) SELECT t.id,t.name,t.is_default,t.revision,t.position,t.created_at,c.total,c.course_count,c.teacher_count,c.resource_count FROM target t CROSS JOIN counts c`, t.owner))
 }
@@ -253,6 +259,11 @@ func item(row scanner) (f.Item, error) {
 }
 func (t *transaction) Item(id string) (f.Item, error) {
 	return item(t.tx.QueryRowContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND id=$2`, t.owner, id))
+}
+func (t *transaction) ItemCount() (int, error) {
+	var n int
+	e := t.tx.QueryRowContext(t.ctx, `SELECT count(*) FROM favorites.items WHERE owner_key=$1`, t.owner).Scan(&n)
+	return n, safe(e)
 }
 func (t *transaction) Target(kind, target string) (f.Item, error) {
 	return item(t.tx.QueryRowContext(t.ctx, `SELECT `+columns+` FROM favorites.items WHERE owner_key=$1 AND kind=$2 AND target_id=$3`, t.owner, kind, target))
@@ -310,6 +321,81 @@ func (t *transaction) DeleteItem(id string, at time.Time) error {
 		return t.changeActivity(kind, target, "", at, -1, 0, nil, at)
 	}
 	return nil
+}
+func (t *transaction) MoveItems(ids []string, folderID string) ([]f.Item, error) {
+	rows, e := t.tx.QueryContext(t.ctx, `UPDATE favorites.items SET folder_id=$3,revision=CASE WHEN folder_id=$3 THEN revision ELSE revision+1 END WHERE owner_key=$1 AND id=ANY($2::text[]) RETURNING `+columns, t.owner, ids, folderID)
+	if e != nil {
+		return nil, safe(e)
+	}
+	byID := make(map[string]f.Item, len(ids))
+	for rows.Next() {
+		v, err := item(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		byID[v.ID] = v
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return nil, safe(e)
+	}
+	if len(byID) != len(ids) {
+		return nil, f.ErrNotFound
+	}
+	out := make([]f.Item, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, byID[id])
+	}
+	return out, nil
+}
+func (t *transaction) DeleteItems(ids []string, at time.Time) ([]string, error) {
+	rows, e := t.tx.QueryContext(t.ctx, `DELETE FROM favorites.items WHERE owner_key=$1 AND id=ANY($2::text[]) RETURNING id,kind,COALESCE(NULLIF(canonical_target_id,''),target_id)`, t.owner, ids)
+	if e != nil {
+		return nil, safe(e)
+	}
+	type bucketKey struct{ kind, target string }
+	counts := map[bucketKey]int64{}
+	deleted := make(map[string]struct{}, len(ids))
+	for rows.Next() {
+		var id, kind, target string
+		if err := rows.Scan(&id, &kind, &target); err != nil {
+			rows.Close()
+			return nil, safe(err)
+		}
+		deleted[id] = struct{}{}
+		if kind == "course" || kind == "teacher" {
+			counts[bucketKey{kind, target}]++
+		}
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return nil, safe(e)
+	}
+	type bucketDelta struct {
+		activityID   string
+		kind, target string
+		delta        int64
+	}
+	deltas := make([]bucketDelta, 0, len(counts))
+	for k, n := range counts {
+		deltas = append(deltas, bucketDelta{activityID: f.ActivityID(k.kind, k.target, at), kind: k.kind, target: k.target, delta: -n})
+	}
+	slices.SortFunc(deltas, func(a, b bucketDelta) int { return strings.Compare(a.activityID, b.activityID) })
+	for _, d := range deltas {
+		if err := t.changeActivity(d.kind, d.target, "", at, d.delta, 0, nil, at); err != nil {
+			return nil, err
+		}
+	}
+	out := make([]string, 0, len(deleted))
+	for _, id := range ids {
+		if _, ok := deleted[id]; ok {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []string) ([]string, error) {
 	if !r.readyDB() {
