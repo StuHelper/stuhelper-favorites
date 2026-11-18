@@ -22,9 +22,9 @@
 
 按锁文件执行 `make setup`，设置独立 PostgreSQL 的 `STUHELPER_FAVORITES_TEST_DSN` 后执行 `make check`。CI 使用最新稳定 PostgreSQL 元包。本模块没有访问真实账号或生产数据的脚本。
 
-迁移调用 `postgres.Migrate`，运行身份只取得 favorites schema 的 USAGE、表 SELECT/INSERT/UPDATE/DELETE 和序列 USAGE；events 只允许 SELECT/INSERT，requests 另授予 DELETE 用于注销清理。
+迁移调用 `postgres.Migrate`。运行身份需要 favorites schema 的 USAGE 和两个标识序列的 USAGE。folders、items 可读写删除。owners、activity_buckets、outbox 可读写。requests 可读、追加和删除，events、activity_history 可读和追加，activity_retention 只读。
 
-`CheckRuntime` 拒绝超级用户、建库建角色权限、schema CREATE 和审计记录的 UPDATE/DELETE 和幂等记录的 UPDATE 权限。
+`Ready` 校验九张表所需权限、序列及保留版本行。`CheckRuntime` 另检查角色和破坏性权限。历史清理使用独立身份，只需读取 activity_buckets 并读取、删除 activity_history。测试授权见 `postgres/testdb/grants.go`。
 
 后端使用 `STUHELPER_FAVORITES_CONFIG` 指向 0600 JSON 文件，包含 `database_dsn_file` 和 2 至 32 的 `connections`。DSN 文件也必须为 0600。本人列表和收藏夹管理使用本模块数据，resources 不可用时只有新增资料收藏受影响。
 

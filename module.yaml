@@ -36,6 +36,7 @@ scenario_tests:
     - validation_errors_test.go#TestUnicodeActivityIDCursorValidationAndSanitizedDatabaseErrors
   FAV-01:
     - tx_isolation_test.go#TestReplayThroughRepositoryAdapterDuringSourceOutage
+    - postgres/runtime_test.go#TestRuntimePrivilegeIsolationAndFullTableReadiness
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
   FAV-02:
