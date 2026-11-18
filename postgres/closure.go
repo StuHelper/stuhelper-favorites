@@ -92,7 +92,7 @@ func (t *transaction) removeOwnerActivity(at time.Time) error {
 			return safeOp("closure.activity_rows", err)
 		}
 		if len(batch) > 0 {
-			if err := t.changeActivities(batch, "", at, 0, nil, at); err != nil {
+			if err := t.changeActivities(batch, at, at); err != nil {
 				return err
 			}
 			changed = true

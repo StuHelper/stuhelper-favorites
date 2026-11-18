@@ -25,7 +25,8 @@ REVOKE ALL ON SCHEMA favorites FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 
 -- Provider-owned daily aggregates and immutable versions used by rebuild cursors.
-CREATE TABLE IF NOT EXISTS favorites.activity_buckets(id text PRIMARY KEY,kind text NOT NULL CHECK(kind IN('course','teacher')),target_id text NOT NULL,school_id text NOT NULL,day date NOT NULL,first_count bigint NOT NULL,second_count bigint NOT NULL,revision bigint NOT NULL CHECK(revision>0),visible boolean NOT NULL,data jsonb NOT NULL DEFAULT '{}',UNIQUE(kind,target_id,day));
+CREATE TABLE IF NOT EXISTS favorites.activity_buckets(id text PRIMARY KEY,kind text NOT NULL CHECK(kind IN('course','teacher')),target_id text NOT NULL,day date NOT NULL,first_count bigint NOT NULL,revision bigint NOT NULL CHECK(revision>0),visible boolean NOT NULL,data jsonb NOT NULL DEFAULT '{}',UNIQUE(kind,target_id,day));
+ALTER TABLE favorites.activity_buckets DROP COLUMN IF EXISTS school_id,DROP COLUMN IF EXISTS second_count;
 CREATE INDEX IF NOT EXISTS favorites_activity_target ON favorites.activity_buckets(kind,target_id,day);
 CREATE INDEX IF NOT EXISTS favorites_activity_window ON favorites.activity_buckets(kind,day,target_id) INCLUDE(first_count) WHERE visible;
 CREATE TABLE IF NOT EXISTS favorites.activity_history(id text NOT NULL,revision bigint NOT NULL,day date NOT NULL,data jsonb NOT NULL,recorded_xid xid8 NOT NULL DEFAULT pg_current_xact_id(),PRIMARY KEY(id,revision));
@@ -53,7 +54,14 @@ CREATE OR REPLACE TRIGGER invalidate_activity_delete AFTER DELETE ON favorites.a
 CREATE OR REPLACE TRIGGER truncate_activity AFTER TRUNCATE ON favorites.activity_history FOR EACH STATEMENT EXECUTE FUNCTION favorites.invalidate_activity();
 REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favorites.activity_retention FROM PUBLIC;
 
-CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,sent_at timestamptz);
+CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,created_at timestamptz NOT NULL DEFAULT now(),sent_at timestamptz);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='favorites.outbox'::regclass AND attname='created_at' AND NOT attisdropped) THEN
+  ALTER TABLE favorites.outbox ADD COLUMN created_at timestamptz;
+  UPDATE favorites.outbox SET created_at=(data->>'time')::timestamptz;
+  ALTER TABLE favorites.outbox ALTER COLUMN created_at SET DEFAULT now(), ALTER COLUMN created_at SET NOT NULL;
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS favorites_outbox_pending_seq ON favorites.outbox(seq) WHERE sent_at IS NULL;
 DROP INDEX IF EXISTS favorites.favorites_outbox_pending;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
@@ -91,11 +99,11 @@ BEGIN
         bucket_id := removed_target.kind || '/' ||
             translate(encode(convert_to(removed_target.canonical_target_id,'UTF8'),'base64'), E'+/=\n','-_') ||
             '/' || to_char(bucket_day,'YYYY-MM-DD');
-        INSERT INTO favorites.activity_buckets(id,kind,target_id,school_id,day,first_count,second_count,revision,visible)
-        VALUES(bucket_id,removed_target.kind,removed_target.canonical_target_id,'',bucket_day,-removed_target.amount,0,1,false)
+        INSERT INTO favorites.activity_buckets(id,kind,target_id,day,first_count,revision,visible)
+        VALUES(bucket_id,removed_target.kind,removed_target.canonical_target_id,bucket_day,-removed_target.amount,1,false)
         ON CONFLICT(id) DO UPDATE SET first_count=favorites.activity_buckets.first_count+EXCLUDED.first_count,
                                       revision=favorites.activity_buckets.revision+1
-        RETURNING greatest(first_count,0),revision,(first_count>0 OR second_count>0)
+        RETURNING greatest(first_count,0),revision,(first_count>0)
         INTO net_count,bucket_revision,bucket_visible;
 
         snapshot := jsonb_build_object(

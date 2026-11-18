@@ -52,6 +52,8 @@ OutboxChannel 为 favorites_outbox。PendingOutbox(ctx, limit, excludeSubjects) 
 
 Relay 先排除退避主题，再按可见待投递记录的 seq 升序取一批。较晚入队的课程事件不会挤掉已在等待的教师事件。同一主题内，活动桶行锁保证修订顺序。
 
+OutboxLag(ctx) 只读返回未确认事件积压条数、最老未确认时间与年龄，供宿主导出监控指标与积压巡检。
+
 内容事件和活动事件共用同一 outbox，relay 按 type 分发。backend 负责 LISTEN、启动和重连补读、60 秒兜底、退避及待处理主题；模块不扫描业务表寻找待投递变化。
 
 ## 清理、权限与验证

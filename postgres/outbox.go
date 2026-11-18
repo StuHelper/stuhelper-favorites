@@ -2,11 +2,34 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	m "github.com/StuHelper/stuhelper-favorites"
+	"time"
 )
 
-var _ m.OutboxReader = (*Repository)(nil)
+var (
+	_ m.OutboxReader   = (*Repository)(nil)
+	_ m.OutboxObserver = (*Repository)(nil)
+)
+
+func (r *Repository) OutboxLag(ctx context.Context) (m.OutboxLag, error) {
+	var count int64
+	var oldest sql.NullTime
+	e := r.DB.QueryRowContext(ctx, `SELECT count(*),min(created_at) FROM favorites.outbox WHERE sent_at IS NULL`).Scan(&count, &oldest)
+	if e != nil {
+		return m.OutboxLag{}, safe(e)
+	}
+	if count == 0 || !oldest.Valid {
+		return m.OutboxLag{}, nil
+	}
+	at := oldest.Time.UTC()
+	return m.OutboxLag{
+		PendingCount:    count,
+		OldestPendingAt: at,
+		OldestAge:       max(0, time.Now().UTC().Sub(at)),
+	}, nil
+}
 
 func (r *Repository) PendingOutbox(ctx context.Context, limit int, excludeSubjects []string) ([]m.Envelope, error) {
 	if limit < 1 || limit > 100 || len(excludeSubjects) > 1000 {

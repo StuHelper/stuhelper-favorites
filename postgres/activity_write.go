@@ -10,8 +10,8 @@ import (
 
 // Bucket row locks serialize independent actors. Callers update keys in ID order
 // when an operation affects multiple buckets, avoiding inverse lock acquisition.
-func (t *transaction) changeActivity(kind, target, school string, day time.Time, firstDelta, secondDelta int64, forcedVisibility *bool, at time.Time) error {
-	if err := t.changeActivities([]activityDelta{{kind: kind, target: target, delta: firstDelta}}, school, day, secondDelta, forcedVisibility, at); err != nil {
+func (t *transaction) changeActivity(kind, target string, day time.Time, delta int64, at time.Time) error {
+	if err := t.changeActivities([]activityDelta{{kind: kind, target: target, delta: delta}}, day, at); err != nil {
 		return err
 	}
 	return t.notifyOutbox()
@@ -23,7 +23,7 @@ type activityDelta struct {
 }
 
 // Lock all buckets in protocol order, then persist their snapshots and envelopes together.
-func (t *transaction) changeActivities(changes []activityDelta, school string, day time.Time, secondDelta int64, forcedVisibility *bool, at time.Time) error {
+func (t *transaction) changeActivities(changes []activityDelta, day, at time.Time) error {
 	day = day.UTC().Truncate(24 * time.Hour)
 	ids := make([]string, len(changes))
 	kinds := make([]string, len(changes))
@@ -37,13 +37,13 @@ func (t *transaction) changeActivities(changes []activityDelta, school string, d
 		kinds[i], targets[i], deltas[i] = change.kind, change.target, change.delta
 	}
 	rows, e := t.tx.QueryContext(t.ctx, `INSERT INTO favorites.activity_buckets AS b
-  (id,kind,target_id,school_id,day,first_count,second_count,revision,visible)
-  SELECT id,kind,target,$5,$6,delta,$7,1,false
+  (id,kind,target_id,day,first_count,revision,visible)
+  SELECT id,kind,target,$5,delta,1,false
   FROM unnest($1::text[],$2::text[],$3::text[],$4::bigint[]) AS v(id,kind,target,delta)
   ORDER BY id COLLATE "C"
   ON CONFLICT(id) DO UPDATE SET first_count=b.first_count+EXCLUDED.first_count,
-    second_count=b.second_count+EXCLUDED.second_count, revision=b.revision+1
-  RETURNING id,kind,target_id,first_count,second_count,revision`, ids, kinds, targets, deltas, school, day, secondDelta)
+    revision=b.revision+1
+  RETURNING id,kind,target_id,first_count,revision`, ids, kinds, targets, deltas, day)
 	if e != nil {
 		return safe(e)
 	}
@@ -51,18 +51,15 @@ func (t *transaction) changeActivities(changes []activityDelta, school string, d
 	envelopes := make([]m.Envelope, 0, len(changes))
 	for rows.Next() {
 		var id, kind, target string
-		var first, second, revision int64
-		if e := rows.Scan(&id, &kind, &target, &first, &second, &revision); e != nil {
+		var first, revision int64
+		if e := rows.Scan(&id, &kind, &target, &first, &revision); e != nil {
 			return safe(e)
 		}
 		first = max(0, first)
-		if first > 1000000000 || second < 0 || second > 1000000000 {
+		if first > 1000000000 {
 			return m.ErrUnavailable
 		}
-		d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day.Format(time.DateOnly), Revision: revision, Visible: first > 0 || second > 0, Metrics: map[string]int64{"favorites": first}}
-		if forcedVisibility != nil {
-			d.Visible = *forcedVisibility && d.Visible
-		}
+		d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day.Format(time.DateOnly), Revision: revision, Visible: first > 0, Metrics: map[string]int64{"favorites": first}}
 		data, e := json.Marshal(d)
 		if e != nil {
 			return m.ErrUnavailable
@@ -86,7 +83,7 @@ func (t *transaction) changeActivities(changes []activityDelta, school string, d
     INSERT INTO favorites.activity_history(id,revision,day,data)
     SELECT data->>'id',(data->>'revision')::bigint,(data->>'day')::date,data FROM snapshots
  )
- INSERT INTO favorites.outbox(id,data)
- SELECT envelope->>'id',envelope FROM snapshots ORDER BY (envelope->>'subject') COLLATE "C"`, raw)
+ INSERT INTO favorites.outbox(id,data,created_at)
+ SELECT envelope->>'id',envelope,(envelope->>'time')::timestamptz FROM snapshots ORDER BY (envelope->>'subject') COLLATE "C"`, raw)
 	return safe(e)
 }

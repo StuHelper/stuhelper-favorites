@@ -37,7 +37,7 @@ func activityDatabase(t *testing.T) (*Repository, *Repository, *sql.DB) {
 	}
 	cfg.Database = name
 	db := stdlib.OpenDB(*cfg)
-	if _, e = db.Exec(Schema); e != nil {
+	if e = Migrate(context.Background(), db); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN; CREATE ROLE ` + cleanerRole + ` LOGIN`); e != nil {
@@ -78,7 +78,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	ctx := context.Background()
 	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
 	change := func(tx *sql.Tx, id string, delta int64) error {
-		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, "school", day, delta, 0, nil, day)
+		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, day, delta, day)
 	}
 	apply := func(id string, delta int64) error {
 		tx, e := repo.DB.BeginTx(ctx, nil)

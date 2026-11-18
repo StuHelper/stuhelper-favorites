@@ -217,7 +217,7 @@ func parseTargetIDs(rawQuery string) ([]string, bool) {
 		if key != "target_ids" {
 			continue
 		}
-		if found {
+		if found || len(v) > 3*80100 {
 			return nil, false
 		}
 		found = true
