@@ -32,7 +32,8 @@ CREATE OR REPLACE TRIGGER truncate_activity AFTER TRUNCATE ON favorites.activity
 REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favorites.activity_retention FROM PUBLIC;
 
 CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,sent_at timestamptz);
-CREATE INDEX IF NOT EXISTS favorites_outbox_pending ON favorites.outbox((data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq) WHERE sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS favorites_outbox_pending_seq ON favorites.outbox(seq) WHERE sent_at IS NULL;
+DROP INDEX IF EXISTS favorites.favorites_outbox_pending;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
 
 -- Deduplicate once, after the activity tables exist. A removed favorite has the
