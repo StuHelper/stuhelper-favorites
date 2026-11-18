@@ -32,6 +32,9 @@ func (s *Service) CurrentActivity(ctx context.Context, principal, id string) (Ac
 	if !valid(resolved.ID, 200) || !valid(resolved.Title, 500) || (resolved.Kind != "course" && resolved.Kind != "teacher") {
 		return empty, false, ErrUnavailable
 	}
+	if _, _, err := ParseActivityID(ActivityID(resolved.Kind, resolved.ID, s.now())); err != nil {
+		return empty, false, ErrUnavailable
+	}
 	if resolved.ID != target.ID || resolved.Kind != target.Kind {
 		return empty, false, nil
 	}
