@@ -32,7 +32,21 @@ CREATE TABLE IF NOT EXISTS favorites.activity_retention(singleton boolean PRIMAR
 INSERT INTO favorites.activity_retention(singleton) VALUES(true) ON CONFLICT DO NOTHING;
 CREATE OR REPLACE FUNCTION favorites.invalidate_activity() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$ BEGIN UPDATE favorites.activity_retention SET revision=revision+1 WHERE singleton;RETURN NULL;END $$;
 REVOKE ALL ON FUNCTION favorites.invalidate_activity() FROM PUBLIC;
-CREATE OR REPLACE TRIGGER invalidate_activity AFTER UPDATE OR DELETE ON favorites.activity_history FOR EACH ROW EXECUTE FUNCTION favorites.invalidate_activity();
+-- Transition tables require a separate trigger per event. Empty cleanup leaves cursors valid.
+CREATE OR REPLACE FUNCTION favorites.invalidate_changed_activity() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+    IF EXISTS (SELECT FROM changed) THEN
+        UPDATE favorites.activity_retention SET revision=revision+1 WHERE singleton;
+    END IF;
+    RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION favorites.invalidate_changed_activity() FROM PUBLIC;
+DROP TRIGGER IF EXISTS invalidate_activity ON favorites.activity_history;
+CREATE OR REPLACE TRIGGER invalidate_activity_update AFTER UPDATE ON favorites.activity_history
+    REFERENCING OLD TABLE AS changed FOR EACH STATEMENT EXECUTE FUNCTION favorites.invalidate_changed_activity();
+CREATE OR REPLACE TRIGGER invalidate_activity_delete AFTER DELETE ON favorites.activity_history
+    REFERENCING OLD TABLE AS changed FOR EACH STATEMENT EXECUTE FUNCTION favorites.invalidate_changed_activity();
 CREATE OR REPLACE TRIGGER truncate_activity AFTER TRUNCATE ON favorites.activity_history FOR EACH STATEMENT EXECUTE FUNCTION favorites.invalidate_activity();
 REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favorites.activity_retention FROM PUBLIC;
 

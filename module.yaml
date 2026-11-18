@@ -29,6 +29,8 @@ scenario_tests:
     - canonical_migration_test.go#TestCanonicalMigrationPublishesDuplicateRemoval
     - postgres/snapshot_format_test.go#TestSnapshotRequiresPositiveTransactionIDs
     - outbox_fifo_test.go#TestPendingOutboxDeliversOldestEligibleEvents
+    - history_epoch_test.go#TestHistoryPruneAdvancesOnceForNonemptyBatch
+    - history_epoch_test.go#TestRepeatableReadKeepsSnapshotAcrossConcurrentCommit
     - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
