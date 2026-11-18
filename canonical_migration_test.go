@@ -160,3 +160,51 @@ func TestMigrationKeepsOldestCanonicalFavoritePerOwner(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalMigrationPublishesDuplicateRemoval(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	var at time.Time
+	if err := x.db.QueryRow("SELECT transaction_timestamp()").Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	x.s.Now = func() time.Time { return at }
+	first, err := x.s.Add(ctx, "owner", "alias", f.Add{Kind: "course", TargetID: "old-alias"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = x.db.Exec("DROP INDEX favorites.favorites_items_canonical"); err != nil {
+		t.Fatal(err)
+	}
+	// Replay a pre-upgrade save using the old uniqueness rule on the requested target.
+	dup := first
+	dup.ID = "later"
+	dup.TargetID = "course"
+	dup.CanonicalTargetID = "course"
+	dup.CreatedAt = first.CreatedAt.Add(time.Microsecond)
+	if err = x.repo.Transaction(ctx, "owner", func(tx f.Transaction) error { return tx.SaveItem(dup) }); err != nil {
+		t.Fatal(err)
+	}
+	id := f.ActivityID("course", "course", at)
+	for i := 0; i < 2; i++ {
+		if err = postgres.Migrate(ctx, x.db); err != nil {
+			t.Fatal(err)
+		}
+		act, err := x.repo.ReadActivity(ctx, id)
+		if err != nil || act.Revision != 3 || act.Metrics["favorites"] != 1 {
+			t.Fatalf("migration %d: activity %+v %v", i, act, err)
+		}
+		var published bool
+		if err = x.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM favorites.outbox o JOIN favorites.activity_history h
+ ON h.id=o.data->>'subject' AND h.data=o.data->'data' WHERE h.id=$1 AND h.revision=3 AND o.sent_at IS NULL)`, id).Scan(&published); err != nil || !published {
+			t.Fatalf("history/outbox: %t %v", published, err)
+		}
+	}
+	if _, err = x.s.Remove(ctx, "owner", "remove", first.ID, first.Revision); err != nil {
+		t.Fatal(err)
+	}
+	act, err := x.repo.ReadActivity(ctx, id)
+	if err != nil || act.Visible || act.Metrics["favorites"] != 0 {
+		t.Fatalf("after removing survivor: %+v %v", act, err)
+	}
+}

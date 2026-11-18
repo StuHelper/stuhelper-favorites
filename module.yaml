@@ -26,6 +26,7 @@ specifications:
 scenario_tests:
   FAV-ACTIVITY-01:
     - canonical_migration_test.go#TestMigrationKeepsOldestCanonicalFavoritePerOwner
+    - canonical_migration_test.go#TestCanonicalMigrationPublishesDuplicateRemoval
     - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
