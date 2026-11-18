@@ -30,6 +30,7 @@ scenario_tests:
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
   FAV-01:
+    - postgres/runtime_test.go#TestRuntimePrivilegeIsolationAndFullTableReadiness
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination

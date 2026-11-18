@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	m "github.com/StuHelper/stuhelper-favorites"
+	"github.com/StuHelper/stuhelper-favorites/postgres/testdb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,7 +18,7 @@ import (
 	"time"
 )
 
-func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
+func activityDatabase(t *testing.T) (*Repository, *Repository, *sql.DB) {
 	t.Helper()
 	dsn := os.Getenv("STUHELPER_FAVORITES_TEST_DSN")
 	if dsn == "" {
@@ -30,6 +31,7 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 	admin := stdlib.OpenDB(*cfg)
 	name := fmt.Sprintf("activity_%d", time.Now().UnixNano())
 	role := name + "_runtime"
+	cleanerRole := name + "_cleaner"
 	if _, e = admin.Exec(`CREATE DATABASE ` + name); e != nil {
 		t.Fatal(e)
 	}
@@ -38,15 +40,20 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 	if _, e = db.Exec(Schema); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN`); e != nil {
+	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN; CREATE ROLE ` + cleanerRole + ` LOGIN`); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role); e != nil {
+	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;` + testdb.RuntimeGrants(role) + `;GRANT USAGE ON SCHEMA favorites TO ` + cleanerRole + `;GRANT SELECT ON favorites.activity_buckets TO ` + cleanerRole + `;GRANT SELECT,DELETE ON favorites.activity_history TO ` + cleanerRole); e != nil {
 		t.Fatal(e)
 	}
-	cfg.User = role
-	runtime := stdlib.OpenDB(*cfg)
+	runtimeCfg := *cfg
+	runtimeCfg.User = role
+	runtime := stdlib.OpenDB(runtimeCfg)
+	cleanerCfg := *cfg
+	cleanerCfg.User = cleanerRole
+	cleaner := stdlib.OpenDB(cleanerCfg)
 	t.Cleanup(func() {
+		cleaner.Close()
 		runtime.Close()
 		db.Close()
 		if _, e := admin.Exec(`DROP DATABASE ` + name + ` WITH(FORCE)`); e != nil {
@@ -55,12 +62,19 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 		if _, e := admin.Exec(`DROP ROLE ` + role); e != nil {
 			t.Error(e)
 		}
+		if _, e := admin.Exec(`DROP ROLE ` + cleanerRole); e != nil {
+			t.Error(e)
+		}
 		admin.Close()
 	})
-	return &Repository{DB: runtime}, db
+	repo := &Repository{DB: runtime}
+	if e = repo.CheckRuntime(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	return repo, &Repository{DB: cleaner}, db
 }
 func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
-	repo, db := activityDatabase(t)
+	repo, cleaner, db := activityDatabase(t)
 	ctx := context.Background()
 	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
 	change := func(tx *sql.Tx, id string, delta int64) error {
@@ -138,7 +152,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	}
 	firstCursor := cursor
 	// Empty cleanup does not invalidate a reader when no history was removed.
-	if n, e := repo.PruneActivityHistory(ctx, day, 1); e != nil || n != 0 {
+	if n, e := cleaner.PruneActivityHistory(ctx, day, 1); e != nil || n != 0 {
 		t.Fatal(n, e)
 	}
 	if _, _, e := repo.ActivitySnapshot(ctx, day, day.AddDate(0, 0, 1), firstCursor, 1); e != nil {
@@ -247,7 +261,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	if e = apply("a", 1); e != nil {
 		t.Fatal(e)
 	}
-	n, e := repo.PruneActivityHistory(ctx, day.AddDate(0, 0, 1), 1)
+	n, e := cleaner.PruneActivityHistory(ctx, day.AddDate(0, 0, 1), 1)
 	if e != nil || n != 1 {
 		t.Fatal(n, e)
 	}

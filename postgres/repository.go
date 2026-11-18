@@ -53,20 +53,57 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 func (r *Repository) Ready(ctx context.Context) error {
-	var exists bool
-	e := r.DB.QueryRowContext(ctx, `SELECT to_regclass('favorites.items') IS NOT NULL AND to_regclass('favorites.owners') IS NOT NULL`).Scan(&exists)
-	if e != nil || !exists {
+	if r == nil || r.DB == nil {
+		return f.ErrUnavailable
+	}
+	var ready bool
+	e := r.DB.QueryRowContext(ctx, `SELECT
+   has_schema_privilege(current_user,'favorites','USAGE')
+   AND EXISTS(SELECT 1 FROM favorites.activity_retention WHERE singleton)
+   AND NOT EXISTS(
+      SELECT 1 FROM (VALUES
+				('favorites.owners',ARRAY['SELECT','INSERT','UPDATE']),
+				('favorites.folders',ARRAY['SELECT','INSERT','UPDATE','DELETE']),
+				('favorites.items',ARRAY['SELECT','INSERT','UPDATE','DELETE']),
+				('favorites.requests',ARRAY['SELECT','INSERT','DELETE']),
+				('favorites.events',ARRAY['SELECT','INSERT']),
+				('favorites.activity_buckets',ARRAY['SELECT','INSERT','UPDATE']),
+				('favorites.activity_history',ARRAY['SELECT','INSERT']),
+				('favorites.activity_retention',ARRAY['SELECT']),
+				('favorites.outbox',ARRAY['SELECT','INSERT','UPDATE'])
+			) AS required(tbl,privs),
+			LATERAL unnest(required.privs) AS priv
+			WHERE NOT has_table_privilege(current_user,required.tbl,priv)
+		)
+		AND has_sequence_privilege(current_user,pg_get_serial_sequence('favorites.events','id'),'USAGE')
+   AND has_sequence_privilege(current_user,pg_get_serial_sequence('favorites.outbox','seq'),'USAGE')`).Scan(&ready)
+	if e != nil || !ready {
 		return f.ErrUnavailable
 	}
 	return nil
 }
+
 func (r *Repository) CheckRuntime(ctx context.Context) error {
+	if e := r.Ready(ctx); e != nil {
+		return e
+	}
 	var unsafe bool
-	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb OR has_schema_privilege(current_user,'favorites','CREATE') OR has_table_privilege(current_user,'favorites.events','UPDATE,DELETE') OR has_table_privilege(current_user,'favorites.requests','UPDATE') FROM pg_roles WHERE rolname=current_user`).Scan(&unsafe)
+	e := r.DB.QueryRowContext(ctx, `SELECT rolsuper OR rolcreaterole OR rolcreatedb
+    OR has_schema_privilege(current_user,'favorites','CREATE')
+    OR has_table_privilege(current_user,'favorites.events','UPDATE,DELETE')
+    OR has_table_privilege(current_user,'favorites.requests','UPDATE')
+    OR has_table_privilege(current_user,'favorites.owners','DELETE')
+    OR has_table_privilege(current_user,'favorites.activity_history','UPDATE,DELETE')
+    OR has_table_privilege(current_user,'favorites.activity_retention','INSERT,UPDATE,DELETE')
+    OR has_table_privilege(current_user,'favorites.activity_buckets','DELETE')
+    OR has_table_privilege(current_user,'favorites.outbox','DELETE')
+    OR EXISTS(SELECT 1 FROM pg_tables WHERE schemaname='favorites'
+       AND has_table_privilege(current_user,format('%I.%I',schemaname,tablename),'TRUNCATE'))
+    FROM pg_roles WHERE rolname=current_user`).Scan(&unsafe)
 	if e != nil || unsafe {
 		return f.ErrUnavailable
 	}
-	return r.Ready(ctx)
+	return nil
 }
 func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.Transaction) error) error {
 	tx, e := r.DB.BeginTx(ctx, nil)
