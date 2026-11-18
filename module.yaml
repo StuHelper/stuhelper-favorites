@@ -34,6 +34,8 @@ scenario_tests:
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
   PC-07:
+    - closure_activity_test.go#TestClosureUsesServiceClockAndOrderedActivityIDs
+    - closure_activity_test.go#TestClosureBatchesDatabaseRoundTrips
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:
     - activity_totals_test.go#TestUIDirectoryActivityTotalsRespectWindowAndDailyNet

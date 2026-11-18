@@ -45,14 +45,7 @@ func (r *Repository) ConfirmOutbox(ctx context.Context, id string) error {
 	}
 	return nil
 }
-func (t *transaction) saveEnvelope(v m.Envelope) error {
-	raw, e := json.Marshal(v)
-	if e != nil {
-		return m.ErrInput
-	}
-	if _, e = t.tx.ExecContext(t.ctx, `INSERT INTO favorites.outbox(id,data) VALUES($1,$2)`, v.ID, raw); e != nil {
-		return safe(e)
-	}
-	_, e = t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, m.OutboxChannel)
+func (t *transaction) notifyOutbox() error {
+	_, e := t.tx.ExecContext(t.ctx, `SELECT pg_notify($1,'')`, m.OutboxChannel)
 	return safe(e)
 }
