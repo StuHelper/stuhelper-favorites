@@ -201,6 +201,15 @@ func (s *Service) ListFolders(ctx context.Context, owner, after string, limit in
 	return out, e
 }
 func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, error) {
+	return s.storeFavorite(ctx, owner, key, in, false)
+}
+
+func (s *Service) SetTarget(ctx context.Context, owner, key string, in Add) (Item, error) {
+	return s.storeFavorite(ctx, owner, key, in, true)
+}
+
+// Add preserves an existing folder. SetTarget moves an existing receipt to the requested folder.
+func (s *Service) storeFavorite(ctx context.Context, owner, key string, in Add, moveExisting bool) (Item, error) {
 	if !kind(in.Kind) || !valid(in.TargetID, 200) || strings.TrimSpace(in.TargetID) != in.TargetID || in.FolderID != "" && (!valid(in.FolderID, 200) || strings.TrimSpace(in.FolderID) != in.FolderID) {
 		return Item{}, ErrInput
 	}
@@ -251,14 +260,39 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 		}
 	}
 	errRetryResolve := errors.New("retry_resolve")
+	op := "item.add"
+	if moveExisting {
+		op = "target.set"
+	}
 	for range 2 {
-		item, e := mutation(ctx, s, owner, key, "item.add", in, func(tx Transaction) (Item, error) {
+		item, e := mutation(ctx, s, owner, key, op, in, func(tx Transaction) (Item, error) {
+			reuse := func(old Item) (Item, error) {
+				if !moveExisting {
+					if in.FolderID != "" && old.FolderID != in.FolderID {
+						return old, ErrConflict
+					}
+					return old, nil
+				}
+				var folder Folder
+				var err error
+				if in.FolderID == "" {
+					folder, err = tx.DefaultFolder()
+				} else {
+					folder, err = tx.Folder(in.FolderID)
+				}
+				if err != nil {
+					return Item{}, err
+				}
+				if folder.ID == old.FolderID {
+					return old, nil
+				}
+				old.FolderID = folder.ID
+				old.Revision++
+				return old, tx.SaveItem(old)
+			}
 			old, e := tx.Target(in.Kind, in.TargetID)
 			if e == nil {
-				if in.FolderID != "" && in.FolderID != old.FolderID {
-					return old, ErrConflict
-				}
-				return old, nil
+				return reuse(old)
 			}
 			if !errors.Is(e, ErrNotFound) {
 				return Item{}, e
@@ -280,10 +314,7 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 			}); ok {
 				old, e := lookup.CanonicalTarget(in.Kind, resolved.ID)
 				if e == nil {
-					if in.FolderID != "" && in.FolderID != old.FolderID {
-						return old, ErrConflict
-					}
-					return old, nil
+					return reuse(old)
 				}
 				if !errors.Is(e, ErrNotFound) {
 					return Item{}, e
@@ -342,6 +373,28 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 			return Removed{}, ErrConflict
 		}
 		return Removed{item, true}, tx.DeleteItem(item, s.now())
+	})
+}
+func (s *Service) RemoveTarget(ctx context.Context, owner, key string, in Target) (Removed, error) {
+	if !kind(in.Kind) || !valid(in.TargetID, 200) || strings.TrimSpace(in.TargetID) != in.TargetID {
+		return Removed{}, ErrInput
+	}
+	return mutation(ctx, s, owner, key, "target.remove", in, func(tx Transaction) (Removed, error) {
+		old, e := tx.Target(in.Kind, in.TargetID)
+		if errors.Is(e, ErrNotFound) {
+			if lookup, ok := tx.(interface {
+				CanonicalTarget(string, string) (Item, error)
+			}); ok {
+				old, e = lookup.CanonicalTarget(in.Kind, in.TargetID)
+			}
+		}
+		if errors.Is(e, ErrNotFound) {
+			return Removed{ID: "", Removed: false}, nil
+		}
+		if e != nil {
+			return Removed{}, e
+		}
+		return Removed{ID: old.ID, Removed: true}, tx.DeleteItem(old.ID, s.now())
 	})
 }
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {
