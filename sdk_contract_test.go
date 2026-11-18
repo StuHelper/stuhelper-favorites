@@ -3,6 +3,8 @@ package favorites_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/StuHelper/stuhelper-favorites/postgres"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -95,6 +97,15 @@ func TestGeneratedSDKRoutesCourseReferencesTimeoutAndOutboxLag(t *testing.T) {
 	}
 
 	kindCourse := sdk.ListFavoritesParamsKindCourse
+	unicodeIDs := make([]string, 100)
+	for i := range unicodeIDs {
+		unicodeIDs[i] = strings.Repeat("😀", 197) + fmt.Sprintf("%03d", i)
+	}
+	unicodePage, err := alice.ListFavoritesWithResponse(ctx, &sdk.ListFavoritesParams{Kind: &kindCourse, TargetIds: &unicodeIDs})
+	if err != nil || unicodePage.JSON200 == nil {
+		t.Fatalf("long Unicode targets: %+v %v", unicodePage, err)
+	}
+
 	targets := []string{"course,1", "dept/course-2", "absent"}
 	listRes, err := alice.ListFavoritesWithResponse(ctx, &sdk.ListFavoritesParams{
 		Kind:      &kindCourse,
@@ -191,5 +202,26 @@ func TestGeneratedSDKRoutesCourseReferencesTimeoutAndOutboxLag(t *testing.T) {
 	lagAfter, err := x.s.OutboxLag(ctx)
 	if err != nil || lagAfter.PendingCount != 0 || lagAfter.OldestAge != 0 || !lagAfter.OldestPendingAt.IsZero() {
 		t.Fatal("expected zero lag after confirming all outbox events", lagAfter, err)
+	}
+}
+
+func TestOutboxLagRetainsEnvelopeTimeAfterMigration(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	at := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := x.db.Exec(`ALTER TABLE favorites.outbox DROP COLUMN created_at`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.db.Exec(`INSERT INTO favorites.outbox(id,data) VALUES('old',jsonb_build_object('time',$1::timestamptz))`, at); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := postgres.Migrate(ctx, x.db); err != nil {
+			t.Fatal(err)
+		}
+		lag, err := x.s.OutboxLag(ctx)
+		if err != nil || lag.PendingCount != 1 || !lag.OldestPendingAt.Equal(at) || lag.OldestAge < 24*time.Hour {
+			t.Fatalf("pending age after migration: %+v %v", lag, err)
+		}
 	}
 }

@@ -63,6 +63,10 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "folders":
 			out, e = h.Service.ListFolders(ctx, owner, q.Get("after"), limit)
 		case "items":
+			if len(q.Get("target_ids")) > 80100 {
+				failure(w, f.ErrInput)
+				return
+			}
 			targets, ok := parseTargetIDs(r.URL.RawQuery)
 			if !ok {
 				failure(w, f.ErrInput)
@@ -146,7 +150,7 @@ func parseTargetIDs(rawQuery string) ([]string, bool) {
 		if key != "target_ids" {
 			continue
 		}
-		if found || len(v) > 80100 {
+		if found || len(v) > 3*80100 {
 			return nil, false
 		}
 		found = true

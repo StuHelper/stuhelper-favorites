@@ -34,6 +34,7 @@ scenario_tests:
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - sdk_contract_test.go#TestGeneratedSDKRoutesCourseReferencesTimeoutAndOutboxLag
+    - sdk_contract_test.go#TestOutboxLagRetainsEnvelopeTimeAfterMigration
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:

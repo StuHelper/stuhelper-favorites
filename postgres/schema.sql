@@ -30,6 +30,12 @@ CREATE OR REPLACE TRIGGER truncate_activity AFTER TRUNCATE ON favorites.activity
 REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favorites.activity_retention FROM PUBLIC;
 
 CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,created_at timestamptz NOT NULL DEFAULT now(),sent_at timestamptz);
-ALTER TABLE favorites.outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='favorites.outbox'::regclass AND attname='created_at' AND NOT attisdropped) THEN
+  ALTER TABLE favorites.outbox ADD COLUMN created_at timestamptz;
+  UPDATE favorites.outbox SET created_at=(data->>'time')::timestamptz;
+  ALTER TABLE favorites.outbox ALTER COLUMN created_at SET DEFAULT now(), ALTER COLUMN created_at SET NOT NULL;
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS favorites_outbox_pending ON favorites.outbox((data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq) WHERE sent_at IS NULL;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
