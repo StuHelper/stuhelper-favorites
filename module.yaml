@@ -38,6 +38,8 @@ scenario_tests:
   FAV-01:
     - tx_isolation_test.go#TestReplayThroughRepositoryAdapterDuringSourceOutage
     - postgres/runtime_test.go#TestRuntimePrivilegeIsolationAndFullTableReadiness
+    - retention_test.go#TestReplayExpiryAndBoundedRetention
+    - retention_test.go#TestReaddAfterReceiptExpires
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
   FAV-02:
