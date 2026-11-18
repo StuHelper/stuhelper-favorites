@@ -289,7 +289,14 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 					return Item{}, e
 				}
 			}
-			v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
+			now := s.now()
+			if resolved.Kind == "course" || resolved.Kind == "teacher" {
+				if _, _, err := ParseActivityID(ActivityID(resolved.Kind, resolved.ID, now)); err != nil {
+					return Item{}, ErrUnavailable
+				}
+			}
+
+			v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: now}
 			return v, tx.SaveItem(v)
 		})
 		if !errors.Is(e, errRetryResolve) {
@@ -366,7 +373,7 @@ func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, erro
 			return out, ErrInput
 		}
 		b, e := base64.RawURLEncoding.DecodeString(f.After)
-		if e != nil || json.Unmarshal(b, &pos) != nil || pos.Filter != hash || !valid(pos.ID, 200) {
+		if e != nil || json.Unmarshal(b, &pos) != nil || pos.Filter != hash || !valid(pos.ID, 200) || pos.CreatedAt.IsZero() || (pos.Title != "" && !valid(pos.Title, 500)) {
 			return out, ErrInput
 		}
 	}

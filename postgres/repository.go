@@ -9,11 +9,35 @@ import (
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 //go:embed schema.sql
 var Schema string
+
+// Error preserves a sanitized repository operation name and PostgreSQL SQLSTATE
+// for server-side diagnostics while unwrapping to favorites.ErrUnavailable.
+type Error struct {
+	Op       string
+	SQLState string
+}
+
+func (e *Error) Error() string {
+	if e == nil {
+		return f.ErrUnavailable.Error()
+	}
+	if e.SQLState != "" {
+		return "favorites postgres " + e.Op + ": unavailable (sqlstate " + e.SQLState + ")"
+	}
+	if e.Op != "" {
+		return "favorites postgres " + e.Op + ": unavailable"
+	}
+	return f.ErrUnavailable.Error()
+}
+func (e *Error) Unwrap() error { return f.ErrUnavailable }
 
 type Repository struct{ DB *sql.DB }
 
@@ -25,7 +49,10 @@ type transaction struct {
 	owner string
 }
 
-func safe(e error) error {
+func validText(s string, max int) bool {
+	return s != "" && utf8.ValidString(s) && utf8.RuneCountInString(s) <= max && !strings.ContainsFunc(s, unicode.IsControl)
+}
+func safeOp(op string, e error) error {
 	if e == nil {
 		return nil
 	}
@@ -35,12 +62,20 @@ func safe(e error) error {
 	if errors.Is(e, context.Canceled) || errors.Is(e, context.DeadlineExceeded) {
 		return e
 	}
-	var p *pgconn.PgError
-	if errors.As(e, &p) && (p.Code == "23505" || p.Code == "23503" || p.Code == "40001" || p.Code == "40P01") {
-		return f.ErrConflict
+	var diag *Error
+	if errors.As(e, &diag) {
+		return e
 	}
-	return f.ErrUnavailable
+	var p *pgconn.PgError
+	if errors.As(e, &p) {
+		if p.Code == "23505" || p.Code == "23503" {
+			return f.ErrConflict
+		}
+		return &Error{Op: op, SQLState: p.Code}
+	}
+	return &Error{Op: op}
 }
+func safe(e error) error { return safeOp("db", e) }
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if db == nil {
 		return f.ErrUnavailable
@@ -86,43 +121,43 @@ func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.T
 	}
 	tx, e := r.DB.BeginTx(ctx, nil)
 	if e != nil {
-		return safe(e)
+		return safeOp("tx.begin", e)
 	}
 	defer tx.Rollback()
 	if _, e = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "favorites:"+owner); e != nil {
-		return safe(e)
+		return safeOp("tx.lock", e)
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.owners(owner_key) VALUES($1) ON CONFLICT DO NOTHING`, owner); e != nil {
-		return safe(e)
+		return safeOp("owners.ensure", e)
 	}
 	var closed bool
 	if e = tx.QueryRowContext(ctx, `SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1`, owner).Scan(&closed); e != nil {
-		return safe(e)
+		return safeOp("owners.status", e)
 	}
 	if closed {
 		return f.ErrForbidden
 	}
 	if _, e = tx.ExecContext(ctx, `INSERT INTO favorites.folders(owner_key,id,name,is_default,revision) SELECT $1,gen_random_uuid()::text,'',true,1 WHERE NOT EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND is_default)`, owner); e != nil {
-		return safe(e)
+		return safeOp("folders.ensure_default", e)
 	}
 	if e = run(&transaction{ctx, tx, owner}); e != nil {
 		return e
 	}
-	return safe(tx.Commit())
+	return safeOp("tx.commit", tx.Commit())
 }
 func (t *transaction) Replay(key string) (string, json.RawMessage, error) {
 	var h string
 	var b []byte
 	e := t.tx.QueryRowContext(t.ctx, `SELECT digest,result FROM favorites.requests WHERE owner_key=$1 AND key=$2`, t.owner, key).Scan(&h, &b)
-	return h, b, safe(e)
+	return h, b, safeOp("requests.replay", e)
 }
 func (t *transaction) SaveReplay(key, h string, b json.RawMessage) error {
 	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.requests VALUES($1,$2,$3,$4)`, t.owner, key, h, string(b))
-	return safe(e)
+	return safeOp("requests.save", e)
 }
 func (t *transaction) Event(kind, key string) error {
 	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.events(owner_key,kind,operation) VALUES($1,$2,$3)`, t.owner, kind, key)
-	return safe(e)
+	return safeOp("events.insert", e)
 }
 
 type scanner interface{ Scan(...any) error }
@@ -156,7 +191,7 @@ func (t *transaction) Folders(after string, limit int) ([]f.Folder, error) {
 }
 func (t *transaction) SaveFolder(v f.Folder) error {
 	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.folders VALUES($1,$2,$3,$4,$5) ON CONFLICT(owner_key,id) DO UPDATE SET name=EXCLUDED.name,revision=EXCLUDED.revision`, t.owner, v.ID, v.Name, v.Default, v.Revision)
-	return safe(e)
+	return safeOp("folders.save", e)
 }
 func (t *transaction) DeleteFolder(id, defaultID string) error {
 	if _, e := t.tx.ExecContext(t.ctx, `UPDATE favorites.items SET folder_id=$3,revision=revision+1 WHERE owner_key=$1 AND folder_id=$2`, t.owner, id, defaultID); e != nil {

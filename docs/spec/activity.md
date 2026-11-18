@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-18
+updated: 2026-11-19
 ---
 
 # 热门活动来源
@@ -10,7 +10,7 @@ updated: 2026-11-18
 
 活动采用 search 9c56ad3 的 discovery-activity.schema.json，版本 1.0.0。contracts 保存原始 Schema、来源提交和 SHA-256。测试核对固定摘要，再逐条验证 outbox 事件，拒绝未拥有的指标字段。
 
-favorites 只发送 favorites。事件类型为 discovery.activity.v1，source 固定为 favorites，target.source 固定为 catalog。活动 ID 为 kind/base64url(规范对象 ID)/UTC 日期，base64url 不带填充，subject 等于活动 ID。
+favorites 只发送 favorites。事件类型为 discovery.activity.v1，source 固定为 favorites，target.source 固定为 catalog。活动 ID 为 kind/base64url(规范对象 ID)/UTC 日期，总长不超过 512 字符，目标按 200 码点且无控制符校验，subject 等于活动 ID。
 
 每个对象日维护独立单调修订。事件完整替换日快照，零值显式发送；零计数墓碑不会被迟到事件重新计数。事件、计数和修订历史在同一业务事务提交，并调用 pg_notify('favorites_outbox', '')。
 
@@ -37,6 +37,8 @@ backend 的目录适配器必须优先使用 catalog.Object.CanonicalID，非别
 postgres.Repository.ActivitySnapshot(ctx, fromDay, toDay, cursor, limit) 返回 []Activity、next、error。日期必须为 UTC 零点，窗口左闭右开，limit 为 1 至 100。首轮 cursor 为空，next 为空表示结束。
 
 分页绑定窗口、上限和 PostgreSQL 可见性快照，读取不可变历史中的首轮最新修订，包含零计数和不可见墓碑。分页期间的新增、修改及延迟提交不能进入旧快照。游标有效五分钟，窗口或上限变化会被拒绝。
+
+活动游标校验 PostgreSQL 可见性快照的两个事务编号边界。它们必须大于零，下界不能超过上界。非法编号返回输入错误。
 
 Service.CurrentActivity(ctx, principal, activityID) 返回 Activity、bool、error。请求人由可信认证提供，每次检查当前目标权限；明确不可读或不存在返回 false，数据库和来源依赖故障返回错误，不表示来源未启用。
 
