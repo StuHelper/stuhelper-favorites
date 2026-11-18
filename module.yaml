@@ -44,6 +44,7 @@ scenario_tests:
     - retention_test.go#TestReaddAfterReceiptExpires
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
+    - target_ops_test.go#TestTargetSetAndRemoveSwitchFoldersIdempotentlyWithoutDuplicateActivity
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility

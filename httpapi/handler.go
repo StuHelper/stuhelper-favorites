@@ -143,6 +143,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.Remove(ctx, owner, key, parts[1], in.Revision)
+		case len(parts) == 2 && parts[0] == "targets" && parts[1] == "set":
+			var in f.Add
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.SetTarget(ctx, owner, key, in)
+		case len(parts) == 2 && parts[0] == "targets" && parts[1] == "remove":
+			var in f.Target
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.RemoveTarget(ctx, owner, key, in)
 		default:
 			e = f.ErrNotFound
 		}
