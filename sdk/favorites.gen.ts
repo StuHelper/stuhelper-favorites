@@ -107,7 +107,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data. */
+        /** @description Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders. */
         get: operations["exportFavorites"];
         put?: never;
         post?: never;
@@ -869,6 +869,7 @@ export interface operations {
                 folder_id?: string;
                 kind?: "course" | "teacher" | "resource";
                 after?: string;
+                /** @description Maximum number of folders and maximum number of items per page. */
                 limit?: number;
             };
             header?: never;

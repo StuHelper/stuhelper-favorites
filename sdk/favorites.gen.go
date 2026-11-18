@@ -253,7 +253,9 @@ type ExportFavoritesParams struct {
 	FolderId *string                    `form:"folder_id,omitempty" json:"folder_id,omitempty"`
 	Kind     *ExportFavoritesParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
 	After    *string                    `form:"after,omitempty" json:"after,omitempty"`
-	Limit    *int                       `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Limit Maximum number of folders and maximum number of items per page.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ExportFavoritesParamsKind defines parameters for ExportFavorites.
@@ -408,7 +410,7 @@ type ClientInterface interface {
 
 	// ExportFavorites performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
 	//
-	// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+	// Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders.
 	ExportFavorites(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListFolders performs a GET /api/v1/favorites/folders (the `ListFolders` operationId) request.
@@ -468,7 +470,7 @@ type ClientInterface interface {
 
 // ExportFavorites performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
 //
-// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+// Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders.
 func (c *Client) ExportFavorites(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewExportFavoritesRequest(c.Server, params)
 	if err != nil {
@@ -1349,7 +1351,7 @@ type ClientWithResponsesInterface interface {
 
 	// ExportFavoritesWithResponse performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
 	//
-	// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+	// Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	ExportFavoritesWithResponse(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*ExportFavoritesResponse, error)
@@ -2167,7 +2169,7 @@ func (r RemoveFavoriteResponse) ContentType() string {
 
 // ExportFavoritesWithResponse performs a GET /api/v1/favorites/export (the `ExportFavorites` operationId) request.
 //
-// Export own favorite folders and snapshot items in bounded pages (up to 500 items per page), including canonical target relative paths and excluding target bodies or cross-account data.
+// Export the signed-in owner’s folders and favorite items. Each page returns at most limit folders and limit items. Follow next until it is absent to include every matching item and all folders, including empty folders.
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) ExportFavoritesWithResponse(ctx context.Context, params *ExportFavoritesParams, reqEditors ...RequestEditorFn) (*ExportFavoritesResponse, error) {

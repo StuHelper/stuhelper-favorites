@@ -122,6 +122,48 @@ func TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation(t *testing.
 		t.Fatal(err, filtered)
 	}
 
+	// More folders than items: empty folders must be exported once within the same page bound.
+	for _, name := range []string{"empty1", "empty2", "empty3"} {
+		if _, err := x.s.CreateFolder(ctx, "alice", "new-"+name, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	one := 1
+	var cursor *string
+	seenFolders, seenItems := map[string]bool{}, map[string]bool{}
+	for pages := 0; ; pages++ {
+		if pages >= 6 {
+			t.Fatal("export cursor did not finish")
+		}
+		page, err := alice.ExportFavoritesWithResponse(ctx, &sdk.ExportFavoritesParams{Limit: &one, After: cursor})
+		if err != nil || page.JSON200 == nil {
+			t.Fatalf("export page %d: %v %+v", pages, err, page)
+		}
+		data := page.JSON200
+		if len(data.Folders) > 1 || len(data.Items) > 1 {
+			t.Fatalf("unbounded export: %d folders, %d items", len(data.Folders), len(data.Items))
+		}
+		for _, folder := range data.Folders {
+			if seenFolders[folder.Id] {
+				t.Fatalf("repeated folder %s", folder.Id)
+			}
+			seenFolders[folder.Id] = true
+		}
+		for _, item := range data.Items {
+			if seenItems[item.Id] {
+				t.Fatalf("repeated item %s", item.Id)
+			}
+			seenItems[item.Id] = true
+		}
+		cursor = data.Next
+		if cursor == nil {
+			break
+		}
+	}
+	if len(seenFolders) != 5 || len(seenItems) != 3 {
+		t.Fatalf("export lost data: %v %v", seenFolders, seenItems)
+	}
+
 	// Isolation & cursor/boundary validation:
 	// - Cross-owner cursor or filter change -> 400
 	// - Cross-owner folder_id -> 404

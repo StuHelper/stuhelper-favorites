@@ -10,7 +10,7 @@ import (
 
 var _ f.ExportReader = (*Repository)(nil)
 
-func (r *Repository) ExportFavorites(ctx context.Context, owner, folderID, kind string, pos f.Position, limit int) ([]f.Folder, []f.ExportItem, error) {
+func (r *Repository) ExportFavorites(ctx context.Context, owner, folderID, kind string, pos f.ExportPosition, limit int) ([]f.Folder, []f.ExportItem, error) {
 	tx, e := r.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if e != nil {
 		return nil, nil, safe(e)
@@ -32,7 +32,15 @@ func (r *Repository) ExportFavorites(ctx context.Context, owner, folderID, kind 
 		return nil, nil, f.ErrForbidden
 	}
 
-	folderRows, e := tx.QueryContext(ctx, `WITH counts AS (SELECT folder_id,count(*) AS total FROM favorites.items WHERE owner_key=$1 GROUP BY folder_id) SELECT fld.id,fld.name,fld.is_default,fld.revision,COALESCE(counts.total,0) FROM favorites.folders fld LEFT JOIN counts ON counts.folder_id=fld.id WHERE fld.owner_key=$1 AND ($2='' OR fld.id=$2) ORDER BY fld.is_default DESC,fld.id COLLATE "C" ASC`, owner, folderID)
+	// Page folders before counting their items so a small export page cannot aggregate the entire owner.
+	folderRows, e := tx.QueryContext(ctx, `SELECT fld.id,fld.name,fld.is_default,fld.revision,
+ (SELECT count(*) FROM favorites.items WHERE owner_key=$1 AND folder_id=fld.id)
+ FROM (SELECT id,name,is_default,revision FROM favorites.folders
+ WHERE owner_key=$1 AND ($2='' OR id=$2) AND NOT $6
+ AND ($3='' OR is_default < $4 OR (is_default=$4 AND id COLLATE "C" > $3 COLLATE "C"))
+ ORDER BY is_default DESC,id COLLATE "C" LIMIT $5) fld
+ ORDER BY fld.is_default DESC,fld.id COLLATE "C"`,
+		owner, folderID, pos.FolderAfter, pos.LastFolderDefault, limit, pos.FoldersDone)
 	if e != nil {
 		return nil, nil, safe(e)
 	}
@@ -51,10 +59,16 @@ func (r *Repository) ExportFavorites(ctx context.Context, owner, folderID, kind 
 		return nil, nil, safe(e)
 	}
 	if folderID != "" && len(folders) == 0 {
-		return nil, nil, f.ErrNotFound
+		var exists bool
+		if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND id=$2)`, owner, folderID).Scan(&exists); e != nil {
+			return nil, nil, safe(e)
+		}
+		if !exists {
+			return nil, nil, f.ErrNotFound
+		}
 	}
 
-	itemRows, e := tx.QueryContext(ctx, `SELECT i.id,i.kind,i.target_id,COALESCE(NULLIF(i.canonical_target_id,''),i.target_id),i.title,i.folder_id,fld.name,i.created_at FROM favorites.items i JOIN favorites.folders fld ON fld.owner_key=i.owner_key AND fld.id=i.folder_id WHERE i.owner_key=$1 AND ($2='' OR i.folder_id=$2) AND ($3='' OR i.kind=$3) AND ($4='' OR i.created_at<$5 OR (i.created_at=$5 AND i.id>$4)) AND $5::timestamptz IS NOT NULL ORDER BY i.created_at DESC,i.id ASC LIMIT $6`, owner, folderID, kind, pos.ID, pos.CreatedAt, limit)
+	itemRows, e := tx.QueryContext(ctx, `SELECT i.id,i.kind,i.target_id,COALESCE(NULLIF(i.canonical_target_id,''),i.target_id),i.title,i.folder_id,fld.name,i.created_at FROM favorites.items i JOIN favorites.folders fld ON fld.owner_key=i.owner_key AND fld.id=i.folder_id WHERE i.owner_key=$1 AND NOT $7 AND ($2='' OR i.folder_id=$2) AND ($3='' OR i.kind=$3) AND ($4='' OR i.created_at<$5 OR (i.created_at=$5 AND i.id>$4)) AND $5::timestamptz IS NOT NULL ORDER BY i.created_at DESC,i.id ASC LIMIT $6`, owner, folderID, kind, pos.ID, pos.CreatedAt, limit, pos.ItemsDone)
 	if e != nil {
 		return nil, nil, safe(e)
 	}

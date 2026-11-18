@@ -34,8 +34,17 @@ type ExportFilter struct {
 	Limit    int
 }
 
+// ExportPosition tracks the two independent collections carried by a single page.
+type ExportPosition struct {
+	Position
+	FolderAfter       string `json:",omitempty"`
+	LastFolderDefault bool   `json:",omitempty"`
+	FoldersDone       bool   `json:",omitempty"`
+	ItemsDone         bool   `json:",omitempty"`
+}
+
 type ExportReader interface {
-	ExportFavorites(ctx context.Context, owner, folderID, kind string, pos Position, limit int) ([]Folder, []ExportItem, error)
+	ExportFavorites(ctx context.Context, owner, folderID, kind string, pos ExportPosition, limit int) ([]Folder, []ExportItem, error)
 }
 
 func TargetPath(itemKind, canonicalID string) string {
@@ -60,16 +69,24 @@ func (s *Service) Export(ctx context.Context, owner string, f ExportFilter) (Exp
 	if f.Limit < 1 || f.Limit > 500 || f.Kind != "" && !kind(f.Kind) || f.FolderID != "" && !valid(f.FolderID, 200) {
 		return out, ErrInput
 	}
-	pos := Position{}
+	pos := ExportPosition{}
 	hash := digest([]any{"export", owner, f.FolderID, f.Kind})
 	if f.After != "" {
 		if len(f.After) > 4096 {
 			return out, ErrInput
 		}
 		b, e := base64.RawURLEncoding.DecodeString(f.After)
-		if e != nil || json.Unmarshal(b, &pos) != nil || pos.Filter != hash || !valid(pos.ID, 200) || pos.CreatedAt.IsZero() {
+		if e != nil || json.Unmarshal(b, &pos) != nil || pos.Filter != hash {
 			return out, ErrInput
 		}
+		// A cursor emitted before folder pagination already delivered all folders.
+		if !pos.FoldersDone && pos.FolderAfter == "" && pos.ID != "" {
+			pos.FoldersDone = true
+		}
+		if pos.FoldersDone && pos.ItemsDone || (!pos.ItemsDone && (!valid(pos.ID, 200) || pos.CreatedAt.IsZero())) || (!pos.FoldersDone && !valid(pos.FolderAfter, 200)) {
+			return out, ErrInput
+		}
+
 	}
 	reader, ok := s.Repo.(ExportReader)
 	if !ok {
@@ -80,11 +97,25 @@ func (s *Service) Export(ctx context.Context, owner string, f ExportFilter) (Exp
 		return out, e
 	}
 	out.ExportedAt = s.now()
+	pos.Filter = hash
+	pos.FoldersDone = len(folders) <= f.Limit
+	if !pos.FoldersDone {
+		folders = folders[:f.Limit]
+		last := folders[len(folders)-1]
+		pos.FolderAfter, pos.LastFolderDefault = last.ID, last.Default
+	}
 	out.Folders = folders
+	pos.ItemsDone = len(items) <= f.Limit
 	if len(items) > f.Limit {
 		items = items[:f.Limit]
 		last := items[len(items)-1]
-		b, _ := json.Marshal(Position{ID: last.ID, CreatedAt: last.CreatedAt, Filter: hash})
+		pos.ID, pos.CreatedAt = last.ID, last.CreatedAt
+	}
+	if !pos.FoldersDone || !pos.ItemsDone {
+		b, err := json.Marshal(pos)
+		if err != nil {
+			return out, ErrUnavailable
+		}
 		out.Next = base64.RawURLEncoding.EncodeToString(b)
 	}
 	for i := range items {
