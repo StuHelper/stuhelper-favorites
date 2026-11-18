@@ -11,6 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC). */
         get: operations["listFolders"];
         put?: never;
         post: operations["createFolder"];
@@ -149,6 +150,16 @@ export interface components {
              * @description Current number of own favorites in this folder, without kind or text filters.
              */
             item_count: number;
+            kind_counts: components["schemas"]["KindCounts"];
+        };
+        /** @description Per-kind breakdown of own favorites in this folder, unaffected by list filters. */
+        KindCounts: {
+            /** Format: int64 */
+            course: number;
+            /** Format: int64 */
+            teacher: number;
+            /** Format: int64 */
+            resource: number;
         };
         Item: {
             id: string;
@@ -178,7 +189,7 @@ export interface components {
             name: string;
         };
         Rename: {
-            /** @description Trim leading and trailing Unicode whitespace. Names must be unique within the owner folders (case-sensitive), including a renamed default folder. */
+            /** @description Trim leading and trailing Unicode whitespace. Custom folders require 1 to 20 Unicode code points; passing an empty name on the default folder resets it to the unnamed state so clients render the localized default label. Non-empty names must be unique within the owner folders (case-sensitive). */
             name: string;
             /** Format: int64 */
             revision: number;

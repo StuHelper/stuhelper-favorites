@@ -45,6 +45,7 @@ scenario_tests:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
     - target_ops_test.go#TestTargetSetAndRemoveSwitchFoldersIdempotentlyWithoutDuplicateActivity
+    - folders_ux_test.go#TestFoldersDefaultPinnedDeterministicOrderResetNameAndKindCounts
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility

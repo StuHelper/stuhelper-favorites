@@ -1,8 +1,11 @@
 CREATE SCHEMA IF NOT EXISTS favorites;
 CREATE TABLE IF NOT EXISTS favorites.owners(owner_key text PRIMARY KEY,closure_id text);
-CREATE TABLE IF NOT EXISTS favorites.folders(owner_key text NOT NULL REFERENCES favorites.owners(owner_key),id text NOT NULL,name text NOT NULL CHECK(char_length(name)<=20),is_default boolean NOT NULL,revision bigint NOT NULL CHECK(revision>0),PRIMARY KEY(owner_key,id));
+CREATE TABLE IF NOT EXISTS favorites.folders(owner_key text NOT NULL REFERENCES favorites.owners(owner_key),id text NOT NULL,name text NOT NULL CHECK(char_length(name)<=20),is_default boolean NOT NULL,revision bigint NOT NULL CHECK(revision>0),position integer NOT NULL DEFAULT 0,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(owner_key,id));
+ALTER TABLE favorites.folders ADD COLUMN IF NOT EXISTS position integer NOT NULL DEFAULT 0;
+ALTER TABLE favorites.folders ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_folder_names ON favorites.folders(owner_key,name COLLATE "C");
 CREATE UNIQUE INDEX IF NOT EXISTS favorites_one_default ON favorites.folders(owner_key) WHERE is_default;
+CREATE INDEX IF NOT EXISTS favorites_folders_order ON favorites.folders(owner_key,is_default DESC,position ASC,created_at ASC,id COLLATE "C" ASC);
 CREATE TABLE IF NOT EXISTS favorites.items(owner_key text NOT NULL,id text NOT NULL,kind text NOT NULL CHECK(kind IN('course','teacher','resource')),target_id text NOT NULL,canonical_target_id text NOT NULL DEFAULT '',title text NOT NULL CHECK(char_length(title)<=500),folder_id text NOT NULL,revision bigint NOT NULL CHECK(revision>0),created_at timestamptz NOT NULL,PRIMARY KEY(owner_key,id),UNIQUE(owner_key,kind,target_id),FOREIGN KEY(owner_key,folder_id) REFERENCES favorites.folders(owner_key,id));
 ALTER TABLE favorites.items ADD COLUMN IF NOT EXISTS canonical_target_id text NOT NULL DEFAULT '';
 UPDATE favorites.items SET canonical_target_id=target_id WHERE canonical_target_id='';

@@ -14,6 +14,7 @@
     "/api/v1/favorites/folders": {
       "get": {
         "operationId": "listFolders",
+        "description": "List own folders ordered deterministically with the default folder pinned first (is_default DESC, position ASC, created_at ASC, id ASC).",
         "parameters": [
           {
             "name": "after",
@@ -1120,6 +1121,9 @@
             "format": "int64",
             "minimum": 0,
             "description": "Current number of own favorites in this folder, without kind or text filters."
+          },
+          "kind_counts": {
+            "$ref": "#/components/schemas/KindCounts"
           }
         },
         "required": [
@@ -1127,7 +1131,35 @@
           "name",
           "is_default",
           "revision",
-          "item_count"
+          "item_count",
+          "kind_counts"
+        ]
+      },
+      "KindCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Per-kind breakdown of own favorites in this folder, unaffected by list filters.",
+        "properties": {
+          "course": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "teacher": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "resource": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "course",
+          "teacher",
+          "resource"
         ]
       },
       "Item": {
@@ -1243,9 +1275,9 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1,
+            "minLength": 0,
             "maxLength": 20,
-            "description": "Trim leading and trailing Unicode whitespace. Names must be unique within the owner folders (case-sensitive), including a renamed default folder."
+            "description": "Trim leading and trailing Unicode whitespace. Custom folders require 1 to 20 Unicode code points; passing an empty name on the default folder resets it to the unnamed state so clients render the localized default label. Non-empty names must be unique within the owner folders (case-sensitive)."
           },
           "revision": {
             "type": "integer",
