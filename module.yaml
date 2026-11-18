@@ -50,6 +50,7 @@ scenario_tests:
     - batch_quota_test.go#TestBatchRemovalMatchesClosureActivityOrder
     - batch_quota_test.go#TestBatchRemovalCoalescesLegacyCanonicalDuplicates
     - errors_refresh_test.go#TestTypedErrorReasonsAndTitleSnapshotRefresh
+    - export_test.go#TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
