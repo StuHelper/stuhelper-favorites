@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,15 +81,13 @@ func TestFoldersDefaultPinnedDeterministicOrderResetNameAndKindCounts(t *testing
 			t.Fatal("unexpected duplicate default folder", collected[i])
 		}
 	}
-	// Pairs created at distinct timestamps must strictly follow creation order; equal timestamps tie-break by ID.
-	for i := 0; i+2 < len(expectedCustom); i += 2 {
-		laterGroupStart := i + 3 // collected[0] is default; collected[1..2] is group 0 (single folder at i=0 is collected[1])
-		_ = laterGroupStart
+	// Each adjacent pair has the same creation time, so only its IDs determine the order.
+	for i := 0; i < len(expectedCustom); i += 2 {
+		slices.Sort(expectedCustom[i:min(i+2, len(expectedCustom))])
 	}
-	for i := 2; i < len(collected); i++ {
-		prev, cur := collected[i-1], collected[i]
-		if prev.Name == "收藏夹-00" && cur.Name != "收藏夹-01" && cur.Name != "收藏夹-02" {
-			t.Fatalf("unexpected order after first custom folder: %s then %s", prev.Name, cur.Name)
+	for i, id := range expectedCustom {
+		if collected[i+1].ID != id {
+			t.Fatalf("folder %d: got %q, want %q", i, collected[i+1].ID, id)
 		}
 	}
 	if _, err := x.s.ListFolders(ctx, "alice", "not-base64!", 10); !errors.Is(err, f.ErrInput) {
