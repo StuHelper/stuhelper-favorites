@@ -227,3 +227,86 @@ func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []s
 	}
 	return out, safe(rows.Err())
 }
+func (r *Repository) PrecheckAdd(ctx context.Context, owner, key, kind, target, folderID string) (string, json.RawMessage, bool, error) {
+	var closed, existing, folderOK bool
+	var digest sql.NullString
+	var result []byte
+	e := r.DB.QueryRowContext(ctx, `SELECT COALESCE((SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1),false),(SELECT digest FROM favorites.requests WHERE owner_key=$1 AND key=$2),(SELECT result FROM favorites.requests WHERE owner_key=$1 AND key=$2),EXISTS(SELECT 1 FROM favorites.items WHERE owner_key=$1 AND kind=$3 AND target_id=$4),($5='' OR EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND id=$5))`, owner, key, kind, target, folderID).Scan(&closed, &digest, &result, &existing, &folderOK)
+	if e != nil {
+		return "", nil, false, safe(e)
+	}
+	if closed {
+		return "", nil, false, f.ErrForbidden
+	}
+	if digest.Valid {
+		return digest.String, result, existing, nil
+	}
+	if existing {
+		return "", nil, true, nil
+	}
+	if !folderOK {
+		return "", nil, false, f.ErrNotFound
+	}
+	return "", nil, false, nil
+}
+func (r *Repository) ReadFolders(ctx context.Context, owner, after string, limit int) ([]f.Folder, bool, error) {
+	rows, e := r.DB.QueryContext(ctx, `WITH state AS (SELECT COALESCE((SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1),false) AS closed,EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND is_default) AS initialized) SELECT state.closed,state.initialized,folder.id,folder.name,folder.is_default,folder.revision,folder.item_count FROM state LEFT JOIN LATERAL (SELECT id,name,is_default,revision,(SELECT count(*) FROM favorites.items item WHERE item.owner_key=favorites.folders.owner_key AND item.folder_id=favorites.folders.id) AS item_count FROM favorites.folders WHERE NOT state.closed AND state.initialized AND owner_key=$1 AND id>$2 ORDER BY id LIMIT $3) folder ON true`, owner, after, limit)
+	if e != nil {
+		return nil, false, safe(e)
+	}
+	defer rows.Close()
+	out := []f.Folder{}
+	initialized := false
+	for rows.Next() {
+		var closed bool
+		var id, name sql.NullString
+		var isDefault sql.NullBool
+		var revision, itemCount sql.NullInt64
+		if e = rows.Scan(&closed, &initialized, &id, &name, &isDefault, &revision, &itemCount); e != nil {
+			return nil, false, safe(e)
+		}
+		if closed {
+			return nil, false, f.ErrForbidden
+		}
+		if !initialized {
+			return nil, false, nil
+		}
+		if id.Valid {
+			out = append(out, f.Folder{ID: id.String, Name: name.String, Default: isDefault.Bool, Revision: revision.Int64, ItemCount: itemCount.Int64})
+		}
+	}
+	return out, initialized, safe(rows.Err())
+}
+func (r *Repository) ReadItems(ctx context.Context, owner string, filter f.Filter, pos f.Position) ([]f.Item, error) {
+	order := `created_at DESC,id`
+	page := `($5='' OR created_at<$6 OR (created_at=$6 AND id>$5))`
+	if filter.Sort == "name" {
+		order = `title COLLATE "C",id`
+		page = `($5='' OR title COLLATE "C">$7 COLLATE "C" OR (title=$7 AND id>$5))`
+	}
+	rows, e := r.DB.QueryContext(ctx, `WITH state AS (SELECT COALESCE((SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1),false) AS closed,($2='' OR EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND id=$2)) AS folder_ok) SELECT state.closed,state.folder_ok,item.id,item.kind,item.target_id,item.title,item.folder_id,item.revision,item.created_at,item.canonical_target_id FROM state LEFT JOIN LATERAL (SELECT `+columns+` FROM favorites.items WHERE NOT state.closed AND state.folder_ok AND owner_key=$1 AND ($2='' OR folder_id=$2) AND ($3='' OR kind=$3) AND ($4='' OR strpos(lower(title),lower($4))>0) AND `+page+` AND $6::timestamptz IS NOT NULL AND $7::text IS NOT NULL AND ($9::text[] IS NULL OR target_id=ANY($9::text[])) ORDER BY `+order+` LIMIT $8) item ON true`, owner, filter.FolderID, filter.Kind, filter.Query, pos.ID, pos.CreatedAt, pos.Title, filter.Limit, filter.TargetIDs)
+	if e != nil {
+		return nil, safe(e)
+	}
+	defer rows.Close()
+	out := []f.Item{}
+	for rows.Next() {
+		var closed, folderOK bool
+		var id, kind, targetID, title, folderID, canonical sql.NullString
+		var revision sql.NullInt64
+		var createdAt sql.NullTime
+		if e = rows.Scan(&closed, &folderOK, &id, &kind, &targetID, &title, &folderID, &revision, &createdAt, &canonical); e != nil {
+			return nil, safe(e)
+		}
+		if closed {
+			return nil, f.ErrForbidden
+		}
+		if !folderOK {
+			return nil, f.ErrNotFound
+		}
+		if id.Valid {
+			out = append(out, f.Item{ID: id.String, Kind: kind.String, TargetID: targetID.String, Title: title.String, FolderID: folderID.String, Revision: revision.Int64, CreatedAt: createdAt.Time, CanonicalTargetID: canonical.String})
+		}
+	}
+	return out, safe(rows.Err())
+}
