@@ -30,6 +30,7 @@ scenario_tests:
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
   FAV-01:
+    - tx_isolation_test.go#TestReplayThroughRepositoryAdapterDuringSourceOutage
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
     - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
   FAV-02:

@@ -227,27 +227,27 @@ func (r *Repository) CourseReferences(ctx context.Context, owner string, ids []s
 	}
 	return out, safe(rows.Err())
 }
-func (r *Repository) PrecheckAdd(ctx context.Context, owner, key, kind, target, folderID string) (string, json.RawMessage, bool, error) {
-	var closed, existing, folderOK bool
-	var digest sql.NullString
-	var result []byte
-	e := r.DB.QueryRowContext(ctx, `SELECT COALESCE((SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1),false),(SELECT digest FROM favorites.requests WHERE owner_key=$1 AND key=$2),(SELECT result FROM favorites.requests WHERE owner_key=$1 AND key=$2),EXISTS(SELECT 1 FROM favorites.items WHERE owner_key=$1 AND kind=$3 AND target_id=$4),($5='' OR EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND id=$5))`, owner, key, kind, target, folderID).Scan(&closed, &digest, &result, &existing, &folderOK)
-	if e != nil {
-		return "", nil, false, safe(e)
+func (r *Repository) NeedsTargetResolution(ctx context.Context, owner, key string, in f.Add) (bool, error) {
+	var closed, known, folderOK bool
+	err := r.DB.QueryRowContext(ctx, `SELECT
+   EXISTS(SELECT FROM favorites.owners WHERE owner_key=$1 AND closure_id IS NOT NULL),
+   EXISTS(SELECT FROM favorites.requests WHERE owner_key=$1 AND key=$2)
+     OR EXISTS(SELECT FROM favorites.items WHERE owner_key=$1 AND kind=$3 AND target_id=$4),
+   $5='' OR EXISTS(SELECT FROM favorites.folders WHERE owner_key=$1 AND id=$5)`,
+		owner, key, in.Kind, in.TargetID, in.FolderID).Scan(&closed, &known, &folderOK)
+	if err != nil {
+		return false, safe(err)
 	}
 	if closed {
-		return "", nil, false, f.ErrForbidden
+		return false, f.ErrForbidden
 	}
-	if digest.Valid {
-		return digest.String, result, existing, nil
-	}
-	if existing {
-		return "", nil, true, nil
+	if known {
+		return false, nil
 	}
 	if !folderOK {
-		return "", nil, false, f.ErrNotFound
+		return false, f.ErrNotFound
 	}
-	return "", nil, false, nil
+	return true, nil
 }
 func (r *Repository) ReadFolders(ctx context.Context, owner, after string, limit int) ([]f.Folder, bool, error) {
 	rows, e := r.DB.QueryContext(ctx, `WITH state AS (SELECT COALESCE((SELECT closure_id IS NOT NULL FROM favorites.owners WHERE owner_key=$1),false) AS closed,EXISTS(SELECT 1 FROM favorites.folders WHERE owner_key=$1 AND is_default) AS initialized) SELECT state.closed,state.initialized,folder.id,folder.name,folder.is_default,folder.revision,folder.item_count FROM state LEFT JOIN LATERAL (SELECT id,name,is_default,revision,(SELECT count(*) FROM favorites.items item WHERE item.owner_key=favorites.folders.owner_key AND item.folder_id=favorites.folders.id) AS item_count FROM favorites.folders WHERE NOT state.closed AND state.initialized AND owner_key=$1 AND id>$2 ORDER BY id LIMIT $3) folder ON true`, owner, after, limit)

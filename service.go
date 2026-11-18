@@ -184,27 +184,16 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 	if e := s.ensure(ctx, owner); e != nil {
 		return Item{}, e
 	}
-	h := digest([]any{"item.add", in})
-	needResolve := true
+	// A replay or an existing item can be handled without a source call. The
+	// transaction makes the final decision, including whether a receipt is still live.
+	needResolve := false
 	if prechecker, ok := s.Repo.(interface {
-		PrecheckAdd(context.Context, string, string, string, string, string) (string, json.RawMessage, bool, error)
+		NeedsTargetResolution(context.Context, string, string, Add) (bool, error)
 	}); ok {
-		savedDigest, savedResult, existingTarget, e := prechecker.PrecheckAdd(ctx, owner, key, in.Kind, in.TargetID, in.FolderID)
-		if e != nil {
-			return Item{}, e
-		}
-		if savedDigest != "" {
-			if savedDigest != h {
-				return Item{}, ErrConflict
-			}
-			var replayed Item
-			if json.Unmarshal(savedResult, &replayed) != nil {
-				return Item{}, ErrUnavailable
-			}
-			return replayed, nil
-		}
-		if existingTarget {
-			needResolve = false
+		var err error
+		needResolve, err = prechecker.NeedsTargetResolution(ctx, owner, key, in)
+		if err != nil {
+			return Item{}, err
 		}
 	}
 	var resolved ResolvedTarget
@@ -245,9 +234,6 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 			if !errors.Is(e, ErrNotFound) {
 				return Item{}, e
 			}
-			if !needResolve {
-				return Item{}, errRetryResolve
-			}
 			var folder Folder
 			if in.FolderID == "" {
 				folder, e = tx.DefaultFolder()
@@ -256,6 +242,9 @@ func (s *Service) Add(ctx context.Context, owner, key string, in Add) (Item, err
 			}
 			if e != nil {
 				return Item{}, e
+			}
+			if !needResolve {
+				return Item{}, errRetryResolve
 			}
 			v := Item{ID: id(), Kind: in.Kind, TargetID: in.TargetID, Title: resolved.Title, CanonicalTargetID: resolved.ID, FolderID: folder.ID, Revision: 1, CreatedAt: s.now()}
 			return v, tx.SaveItem(v)

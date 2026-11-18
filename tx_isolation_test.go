@@ -168,3 +168,28 @@ func TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWrite
 		}
 	}
 }
+
+// Adapters implementing only the public Repository interface retain replay semantics.
+type transactionalRepository struct{ f.Repository }
+
+func TestReplayThroughRepositoryAdapterDuringSourceOutage(t *testing.T) {
+	x := setup(t)
+	svc := f.Service{Repo: transactionalRepository{x.repo}, Source: x.source}
+	ctx := context.Background()
+	request := f.Add{Kind: "course", TargetID: "sample"}
+	first, err := svc.Add(ctx, "sample", "same", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.source.state.Store(2)
+	for _, key := range []string{"same", "different"} {
+		got, err := svc.Add(ctx, "sample", key, request)
+		if err != nil || got.ID != first.ID || x.source.calls.Load() != 1 {
+			t.Fatal(got.ID, err, x.source.calls.Load())
+		}
+	}
+	var n int
+	if err := x.db.QueryRow("SELECT count(*) FROM favorites.activity_history").Scan(&n); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
+}
