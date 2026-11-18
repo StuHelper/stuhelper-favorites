@@ -6,6 +6,8 @@
 
 新增收藏由目标模块检查当前内容准入和可见状态。本人列表、移动、取消和收藏夹管理只要求登录与归属。列表只返回名称快照、目标 ID、种类、收藏夹、修订与时间，不包含简介、评分、正文或文件。
 
+`POST /api/v1/favorites/items/{id}/refresh` 按需刷新本人收藏的标题快照；目标仍可读且名称变化时更新标题并递增修订，目标已下架或无准入时保留原快照不变。
+
 每条收藏只属于一个收藏夹。同一目标重复调用 `POST /items` 返回已有记录，指定不同收藏夹时返回 409，个人中心并发控制移动使用 `/items/{id}/move`。删除收藏夹将收藏原子地移入默认夹，并递增收藏修订。默认夹不能删除，可以改名。
 
 列表或详情页星标操作可使用按目标幂等接口：`POST /api/v1/favorites/targets/set` 在未收藏时校验准入并写入指定夹（省略时放入默认夹），已收藏时原子移入目标夹且不重复计入公开热度；`POST /api/v1/favorites/targets/remove` 按种类与目标 ID 幂等取消收藏，目标不存在时返回 `removed=false`。
@@ -29,6 +31,8 @@
 维护进程以独立身份调用 `postgres.Repository.PruneExpired(ctx, limit)`。每次在同一事务中分别清理到期回执、已确认满 90 天的 Outbox 和满 12 个月的审计。每类最多 1 至 1000 条，返回三类已提交删除数之和。待确认事件保留。
 
 清理身份需要 favorites schema 的 USAGE 和 requests、outbox、events 的 SELECT、DELETE。恢复备份后可重复调用至返回零。
+
+错误响应除 `code` 枚举外还返回可选 `reason`（如 `folder_name_conflict`、`revision_conflict`、`idempotency_conflict`、`folder_mismatch`、`default_folder_protected`、`admission_required`、`owner_closed`），供前端精确映射多语言与无障碍报错。
 
 ## 检查与运行
 

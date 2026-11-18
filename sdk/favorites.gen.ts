@@ -169,6 +169,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/favorites/items/{id}/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible. */
+        post: operations["refreshFavorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -216,7 +233,13 @@ export interface components {
             next?: string;
         };
         Error: {
-            code: string;
+            /** @enum {string} */
+            code: "invalid_input" | "unauthenticated" | "forbidden" | "not_found" | "conflict" | "unavailable";
+            /**
+             * @description Machine-readable sub-reason for precise eight-language UI and accessibility error mapping.
+             * @enum {string}
+             */
+            reason?: "folder_name_conflict" | "revision_conflict" | "idempotency_conflict" | "folder_mismatch" | "default_folder_protected" | "admission_required" | "owner_closed";
         };
         Name: {
             /** @description Trim leading and trailing Unicode whitespace. Names must be unique within the owner folders (case-sensitive), including a renamed default folder. */
@@ -1183,6 +1206,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchRemoved"];
+                };
+            };
+            /** @description Invalid input */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Authentication required */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Current content admission denied */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Owned record or target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Revision or idempotency conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Dependency unavailable or import still progressing */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    refreshFavorite: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Item"];
                 };
             };
             /** @description Invalid input */

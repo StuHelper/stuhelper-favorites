@@ -1287,6 +1287,104 @@
           }
         }
       }
+    },
+    "/api/v1/favorites/items/{id}/refresh": {
+      "post": {
+        "operationId": "refreshFavorite",
+        "description": "Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Item"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current content admission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned record or target not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision or idempotency conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable or import still progressing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1447,7 +1545,28 @@
         "additionalProperties": false,
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "invalid_input",
+              "unauthenticated",
+              "forbidden",
+              "not_found",
+              "conflict",
+              "unavailable"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "Machine-readable sub-reason for precise eight-language UI and accessibility error mapping.",
+            "enum": [
+              "folder_name_conflict",
+              "revision_conflict",
+              "idempotency_conflict",
+              "folder_mismatch",
+              "default_folder_protected",
+              "admission_required",
+              "owner_closed"
+            ]
           }
         },
         "required": [

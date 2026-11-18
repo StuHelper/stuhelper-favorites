@@ -100,7 +100,7 @@ func mutationWithLegacyInput[T any](ctx context.Context, s *Service, owner, key,
 		if e == nil {
 			// Receipts written before folder names were normalized hashed the trimmed input.
 			if saved != h && (legacy == nil || saved != digest([]any{op, legacy})) {
-				return ErrConflict
+				return WithReason(ErrConflict, ReasonIdempotencyConflict)
 			}
 			if json.Unmarshal(b, &out) != nil {
 				return ErrUnavailable
@@ -159,7 +159,7 @@ func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, i
 			return Folder{}, ErrInput
 		}
 		if v.Revision != in.Revision {
-			return v, ErrConflict
+			return v, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		v.Name = in.Name
 		v.Revision++
@@ -176,10 +176,10 @@ func (s *Service) DeleteFolder(ctx context.Context, owner, key, folder string, r
 			return Removed{}, e
 		}
 		if v.Default {
-			return Removed{}, ErrForbidden
+			return Removed{}, WithReason(ErrForbidden, ReasonDefaultFolderProtected)
 		}
 		if v.Revision != revision {
-			return Removed{}, ErrConflict
+			return Removed{}, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		d, e := tx.DefaultFolder()
 		if e != nil {
@@ -282,6 +282,9 @@ func (s *Service) storeFavorite(ctx context.Context, owner, key string, in Add, 
 		var e error
 		resolved, e = s.Source.Resolve(call, owner, in.Kind, in.TargetID)
 		if e != nil {
+			if errors.Is(e, ErrForbidden) && ErrorReason(e) == "" {
+				return WithReason(ErrForbidden, ReasonAdmissionRequired)
+			}
 			if ctx.Err() == nil && errors.Is(e, context.DeadlineExceeded) {
 				return ErrUnavailable
 			}
@@ -307,7 +310,7 @@ func (s *Service) storeFavorite(ctx context.Context, owner, key string, in Add, 
 			reuse := func(old Item) (Item, error) {
 				if !moveExisting {
 					if in.FolderID != "" && old.FolderID != in.FolderID {
-						return old, ErrConflict
+						return old, WithReason(ErrConflict, ReasonFolderMismatch)
 					}
 					return old, nil
 				}
@@ -395,7 +398,7 @@ func (s *Service) Move(ctx context.Context, owner, key, item string, in Move) (I
 			return v, e
 		}
 		if v.Revision != in.Revision {
-			return v, ErrConflict
+			return v, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		if _, e = tx.Folder(in.FolderID); e != nil {
 			return v, e
@@ -415,7 +418,7 @@ func (s *Service) Remove(ctx context.Context, owner, key, item string, revision 
 			return Removed{}, e
 		}
 		if v.Revision != revision {
-			return Removed{}, ErrConflict
+			return Removed{}, WithReason(ErrConflict, ReasonRevisionConflict)
 		}
 		return Removed{item, true}, tx.DeleteItem(item, s.now())
 	})
@@ -486,6 +489,59 @@ func (s *Service) BatchRemove(ctx context.Context, owner, key string, in BatchRe
 			return BatchRemoved{}, e
 		}
 		return BatchRemoved{IDs: removed, RemovedCount: int64(len(removed))}, nil
+	})
+}
+func (s *Service) Refresh(ctx context.Context, owner, key, item string) (Item, error) {
+	if !valid(item, 200) {
+		return Item{}, ErrInput
+	}
+	// Read the receipt first so a replay or an inaccessible item never calls the source.
+	needsLookup := errors.New("refresh requires current title")
+	var before Item
+	check := func(tx Transaction) (Item, error) {
+		v, err := tx.Item(item)
+		if err != nil {
+			return Item{}, err
+		}
+		before = v
+		return Item{}, needsLookup
+	}
+	result, err := mutation(ctx, s, owner, key, "item.refresh", item, check)
+	if !errors.Is(err, needsLookup) {
+		return result, err
+	}
+	if s.Source == nil {
+		return Item{}, ErrUnavailable
+	}
+	call, cancel := context.WithTimeout(ctx, 3*time.Second)
+	resolved, sourceErr := s.Source.Resolve(call, owner, before.Kind, before.TargetID)
+	cancel()
+	readable := sourceErr == nil
+	if readable {
+		if !valid(resolved.Title, 500) || !valid(resolved.ID, 200) || resolved.Kind != before.Kind {
+			return Item{}, ErrUnavailable
+		}
+	} else if !errors.Is(sourceErr, ErrNotFound) && !errors.Is(sourceErr, ErrForbidden) {
+		if ctx.Err() != nil {
+			return Item{}, ctx.Err()
+		}
+		return Item{}, ErrUnavailable
+	}
+	// The write transaction rechecks closure, replay, ownership and revision after the upstream call.
+	return mutation(ctx, s, owner, key, "item.refresh", item, func(tx Transaction) (Item, error) {
+		v, err := tx.Item(item)
+		if err != nil {
+			return Item{}, err
+		}
+		if !readable || v.Title == resolved.Title {
+			return v, nil
+		}
+		if v.Revision != before.Revision {
+			return Item{}, WithReason(ErrConflict, ReasonRevisionConflict)
+		}
+		v.Title = resolved.Title
+		v.Revision++
+		return v, tx.SaveItem(v)
 	})
 }
 func (s *Service) List(ctx context.Context, owner string, f Filter) (Items, error) {

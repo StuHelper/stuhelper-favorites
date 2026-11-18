@@ -38,6 +38,69 @@ func (e AddKind) Valid() bool {
 	}
 }
 
+// Defines values for ErrorCode.
+const (
+	Conflict        ErrorCode = "conflict"
+	Forbidden       ErrorCode = "forbidden"
+	InvalidInput    ErrorCode = "invalid_input"
+	NotFound        ErrorCode = "not_found"
+	Unauthenticated ErrorCode = "unauthenticated"
+	Unavailable     ErrorCode = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ErrorCode enum.
+func (e ErrorCode) Valid() bool {
+	switch e {
+	case Conflict:
+		return true
+	case Forbidden:
+		return true
+	case InvalidInput:
+		return true
+	case NotFound:
+		return true
+	case Unauthenticated:
+		return true
+	case Unavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ErrorReason.
+const (
+	AdmissionRequired      ErrorReason = "admission_required"
+	DefaultFolderProtected ErrorReason = "default_folder_protected"
+	FolderMismatch         ErrorReason = "folder_mismatch"
+	FolderNameConflict     ErrorReason = "folder_name_conflict"
+	IdempotencyConflict    ErrorReason = "idempotency_conflict"
+	OwnerClosed            ErrorReason = "owner_closed"
+	RevisionConflict       ErrorReason = "revision_conflict"
+)
+
+// Valid indicates whether the value is a known member of the ErrorReason enum.
+func (e ErrorReason) Valid() bool {
+	switch e {
+	case AdmissionRequired:
+		return true
+	case DefaultFolderProtected:
+		return true
+	case FolderMismatch:
+		return true
+	case FolderNameConflict:
+		return true
+	case IdempotencyConflict:
+		return true
+	case OwnerClosed:
+		return true
+	case RevisionConflict:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ItemKind.
 const (
 	ItemKindCourse   ItemKind = "course"
@@ -148,8 +211,17 @@ type BatchRemoved struct {
 
 // Error defines model for Error.
 type Error struct {
-	Code string `json:"code"`
+	Code ErrorCode `json:"code"`
+
+	// Reason Machine-readable sub-reason for precise eight-language UI and accessibility error mapping.
+	Reason *ErrorReason `json:"reason,omitempty"`
 }
+
+// ErrorCode defines model for Error.Code.
+type ErrorCode string
+
+// ErrorReason Machine-readable sub-reason for precise eight-language UI and accessibility error mapping.
+type ErrorReason string
 
 // Folder defines model for Folder.
 type Folder struct {
@@ -294,6 +366,11 @@ type BatchRemoveFavoritesParams struct {
 
 // MoveFavoriteParams defines parameters for MoveFavorite.
 type MoveFavoriteParams struct {
+	IdempotencyKey string `json:"Idempotency-Key"`
+}
+
+// RefreshFavoriteParams defines parameters for RefreshFavorite.
+type RefreshFavoriteParams struct {
 	IdempotencyKey string `json:"Idempotency-Key"`
 }
 
@@ -487,6 +564,11 @@ type ClientInterface interface {
 	// MoveFavorite performs a POST /api/v1/favorites/items/{id}/move (the `MoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type.
 	MoveFavorite(ctx context.Context, id string, params *MoveFavoriteParams, body MoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RefreshFavorite performs a POST /api/v1/favorites/items/{id}/refresh (the `RefreshFavorite` operationId) request.
+	//
+	// Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible.
+	RefreshFavorite(ctx context.Context, id string, params *RefreshFavoriteParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RemoveFavoriteWithBody performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request,
 	// with any type of body and a specified content type.
@@ -743,6 +825,21 @@ func (c *Client) MoveFavoriteWithBody(ctx context.Context, id string, params *Mo
 // Takes a body of the `application/json` content type.
 func (c *Client) MoveFavorite(ctx context.Context, id string, params *MoveFavoriteParams, body MoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMoveFavoriteRequest(c.Server, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RefreshFavorite performs a POST /api/v1/favorites/items/{id}/refresh (the `RefreshFavorite` operationId) request.
+//
+// Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible.
+func (c *Client) RefreshFavorite(ctx context.Context, id string, params *RefreshFavoriteParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRefreshFavoriteRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1429,6 +1526,53 @@ func NewMoveFavoriteRequestWithBody(server string, id string, params *MoveFavori
 	return req, nil
 }
 
+// NewRefreshFavoriteRequest constructs an http.Request for the RefreshFavorite method
+func NewRefreshFavoriteRequest(server string, id string, params *RefreshFavoriteParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/favorites/items/%s/refresh", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewRemoveFavoriteRequest calls the generic RemoveFavorite builder with application/json body
 func NewRemoveFavoriteRequest(server string, id string, params *RemoveFavoriteParams, body RemoveFavoriteJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1728,6 +1872,13 @@ type ClientWithResponsesInterface interface {
 	// MoveFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/move (the `MoveFavorite` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	MoveFavoriteWithResponse(ctx context.Context, id string, params *MoveFavoriteParams, body MoveFavoriteJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveFavoriteResponse, error)
+
+	// RefreshFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/refresh (the `RefreshFavorite` operationId) request.
+	//
+	// Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RefreshFavoriteWithResponse(ctx context.Context, id string, params *RefreshFavoriteParams, reqEditors ...RequestEditorFn) (*RefreshFavoriteResponse, error)
 
 	// RemoveFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request,
 	// with any type of body and a specified content type.
@@ -2515,6 +2666,89 @@ func (r MoveFavoriteResponse) ContentType() string {
 	return ""
 }
 
+type RefreshFavoriteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Item
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON200() *Item {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RefreshFavoriteResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RefreshFavoriteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RefreshFavoriteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RefreshFavoriteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RefreshFavoriteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RemoveFavoriteResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2948,6 +3182,19 @@ func (c *ClientWithResponses) MoveFavoriteWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseMoveFavoriteResponse(rsp)
+}
+
+// RefreshFavoriteWithResponse performs a POST /api/v1/favorites/items/{id}/refresh (the `RefreshFavorite` operationId) request.
+//
+// Refresh an own favorite item's title snapshot on demand. Updates title and increments revision when the target is currently readable and its title changed; preserves the existing snapshot unchanged when the target is unpublished, missing, or no longer accessible.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RefreshFavoriteWithResponse(ctx context.Context, id string, params *RefreshFavoriteParams, reqEditors ...RequestEditorFn) (*RefreshFavoriteResponse, error) {
+	rsp, err := c.RefreshFavorite(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRefreshFavoriteResponse(rsp)
 }
 
 // RemoveFavoriteWithBodyWithResponse performs a POST /api/v1/favorites/items/{id}/remove (the `RemoveFavorite` operationId) request,
@@ -3577,6 +3824,74 @@ func ParseMoveFavoriteResponse(rsp *http.Response) (*MoveFavoriteResponse, error
 	}
 
 	response := &MoveFavoriteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Item
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRefreshFavoriteResponse parses an HTTP response from a RefreshFavoriteWithResponse call
+func ParseRefreshFavoriteResponse(rsp *http.Response) (*RefreshFavoriteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RefreshFavoriteResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
