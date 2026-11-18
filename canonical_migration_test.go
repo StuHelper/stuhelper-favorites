@@ -11,6 +11,7 @@ import (
 
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/StuHelper/stuhelper-favorites/postgres"
+	"github.com/StuHelper/stuhelper-favorites/postgres/testdb"
 )
 
 func TestCanonicalTargetDeduplicationAndLegacyMigration(t *testing.T) {
@@ -94,7 +95,7 @@ INSERT INTO favorites.items(owner_key,id,kind,target_id,title,folder_id,revision
 			t.Fatalf("Migrate on legacy schema failed: %v", err)
 		}
 	}
-	if _, err := legacyOwner.Exec(`CREATE ROLE ` + legacyRole + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + legacyRole + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + legacyRole + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + legacyRole + `;REVOKE UPDATE ON favorites.requests FROM ` + legacyRole + `;REVOKE UPDATE,DELETE ON favorites.events FROM ` + legacyRole); err != nil {
+	if _, err := legacyOwner.Exec(`CREATE ROLE ` + legacyRole + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;` + testdb.RuntimeGrants(legacyRole)); err != nil {
 		t.Fatal(err)
 	}
 	legacyRuntime, err := sql.Open("pgx", dsn+" dbname="+legacyDBName+" user="+legacyRole)
