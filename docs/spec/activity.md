@@ -36,6 +36,8 @@ postgres.Repository.ActivitySnapshot(ctx, fromDay, toDay, cursor, limit) 返回 
 
 分页绑定窗口、上限和 PostgreSQL 可见性快照，读取不可变历史中的首轮最新修订，包含零计数和不可见墓碑。分页期间的新增、修改及延迟提交不能进入旧快照。游标有效五分钟，窗口或上限变化会被拒绝。
 
+活动游标校验 PostgreSQL 可见性快照的两个事务编号边界。它们必须大于零，下界不能超过上界。非法编号返回输入错误。
+
 Service.CurrentActivity(ctx, principal, activityID) 返回 Activity、bool、error。请求人由可信认证提供，每次检查当前目标权限；明确不可读或不存在返回 false，数据库和来源依赖故障返回错误，不表示来源未启用。
 
 零计数快照仍可返回 true，Visible=false 表示该快照不贡献热度。当前查询不读取其他模块表；catalog 通过自己的公开读规则判断，其他来源通过所属模块公开接口取得当前目标事实。

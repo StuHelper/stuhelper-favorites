@@ -21,7 +21,7 @@ func validSnapshot(s string) bool {
 	}
 	xmin, err1 := strconv.ParseUint(parts[0], 10, 64)
 	xmax, err2 := strconv.ParseUint(parts[1], 10, 64)
-	if err1 != nil || err2 != nil || xmin > xmax {
+	if err1 != nil || err2 != nil || xmin == 0 || xmin > xmax {
 		return false
 	}
 	if parts[2] == "" {

@@ -176,7 +176,7 @@ func (t *transaction) Folders(after string, limit int) ([]f.Folder, error) {
 }
 func (t *transaction) SaveFolder(v f.Folder) error {
 	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.folders VALUES($1,$2,$3,$4,$5) ON CONFLICT(owner_key,id) DO UPDATE SET name=EXCLUDED.name,revision=EXCLUDED.revision`, t.owner, v.ID, v.Name, v.Default, v.Revision)
-	return safe(e)
+	return safeOp("folders.save", e)
 }
 func (t *transaction) DeleteFolder(id, defaultID string) error {
 	if _, e := t.tx.ExecContext(t.ctx, `UPDATE favorites.items SET folder_id=$3,revision=revision+1 WHERE owner_key=$1 AND folder_id=$2`, t.owner, id, defaultID); e != nil {

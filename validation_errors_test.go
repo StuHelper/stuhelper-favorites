@@ -11,7 +11,6 @@ import (
 
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/StuHelper/stuhelper-favorites/postgres"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"os"
 )
@@ -163,5 +162,4 @@ func TestUnicodeActivityIDCursorValidationAndSanitizedDatabaseErrors(t *testing.
 	if strings.Contains(dlErr.Error(), "alice") || strings.Contains(dlErr.Error(), "DeadlockFolder") || strings.Contains(dlErr.Error(), "simulated deadlock") {
 		t.Fatalf("sanitized error leaked raw message or user payload: %s", dlErr.Error())
 	}
-	_ = pgconn.PgError{}
 }

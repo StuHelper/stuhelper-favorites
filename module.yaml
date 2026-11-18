@@ -25,6 +25,7 @@ specifications:
   - docs/spec/activity.md
 scenario_tests:
   FAV-ACTIVITY-01:
+    - postgres/snapshot_format_test.go#TestSnapshotRequiresPositiveTransactionIDs
     - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
