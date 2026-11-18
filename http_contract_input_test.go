@@ -2,6 +2,8 @@ package favorites_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -52,6 +54,15 @@ func TestHTTPContractEncodingInputBoundariesAndSDKCompatibility(t *testing.T) {
 	})
 	if err != nil || listed.StatusCode() != 200 || listed.JSON200 == nil || len(listed.JSON200.Items) != 1 || listed.JSON200.Items[0].TargetId != "course,1" {
 		t.Fatalf("SDK ListFavorites with comma target_id failed: status=%d body=%s err=%v", listed.StatusCode(), string(listed.Body), err)
+	}
+
+	largeIDs := make([]string, 100)
+	for i := range largeIDs {
+		largeIDs[i] = strings.Repeat("学", 197) + fmt.Sprintf("%03d", i)
+	}
+	large, err := client.ListFavoritesWithResponse(ctx, &sdk.ListFavoritesParams{Kind: &kindCourse, TargetIds: &largeIDs})
+	if err != nil || large.JSON200 == nil {
+		t.Fatalf("percent-encoded 100 Unicode IDs: %v %+v", err, large)
 	}
 
 	// 100 target_ids where one contains a comma must still be accepted as 100 items, not split into 101.
@@ -172,5 +183,50 @@ func TestHTTPContractEncodingInputBoundariesAndSDKCompatibility(t *testing.T) {
 	}
 	if err := postgres.Migrate(ctx, nil); !errors.Is(err, f.ErrUnavailable) {
 		t.Fatalf("expected ErrUnavailable from Migrate(nil), got %v", err)
+	}
+}
+
+func TestFolderNameNormalizationReplaysPreUpgradeReceipts(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	raw := "Cafe\u0301"
+	old := f.Folder{ID: "preserved", Name: raw, Revision: 3}
+	result, err := json.Marshal(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rename := f.Rename{Name: raw, Revision: 2}
+	err = x.repo.Transaction(ctx, "owner", func(tx f.Transaction) error {
+		for _, c := range []struct {
+			key, op string
+			body    any
+		}{{"legacy-create", "folder.create", raw}, {"legacy-rename", "folder.rename", []any{old.ID, rename}}} {
+			b, e := json.Marshal([]any{c.op, c.body})
+			if e != nil {
+				return e
+			}
+			if e = tx.SaveReplay(c.key, fmt.Sprintf("%x", sha256.Sum256(b)), result); e != nil {
+				return e
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := x.s.CreateFolder(ctx, "owner", "legacy-create", raw)
+	if err != nil || created != old {
+		t.Fatalf("create replay: %+v %v", created, err)
+	}
+	renamed, err := x.s.RenameFolder(ctx, "owner", "legacy-rename", old.ID, rename)
+	if err != nil || renamed != old {
+		t.Fatalf("rename replay: %+v %v", renamed, err)
+	}
+	if _, err = x.s.CreateFolder(ctx, "owner", "legacy-create", "Different"); !errors.Is(err, f.ErrConflict) {
+		t.Fatalf("different request: %v", err)
+	}
+	var writes int
+	if err = x.db.QueryRow("SELECT count(*) FROM favorites.events WHERE owner_key='owner'").Scan(&writes); err != nil || writes != 0 {
+		t.Fatalf("replay emitted %d events: %v", writes, err)
 	}
 }

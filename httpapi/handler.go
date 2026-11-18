@@ -86,6 +86,10 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				failure(w, f.ErrInput)
 				return
 			}
+			if len(q.Get("target_ids")) > 80100 {
+				failure(w, f.ErrInput)
+				return
+			}
 			targets, ok := parseTargetIDs(r.URL.RawQuery)
 			if !ok {
 				failure(w, f.ErrInput)

@@ -66,6 +66,9 @@ func digest(v any) string {
 	return hex.EncodeToString(h[:])
 }
 func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in any, run func(Transaction) (T, error)) (T, error) {
+	return mutationWithLegacyInput(ctx, s, owner, key, op, in, nil, run)
+}
+func mutationWithLegacyInput[T any](ctx context.Context, s *Service, owner, key, op string, in, legacy any, run func(Transaction) (T, error)) (T, error) {
 	var out T
 	if !valid(owner, 2048) {
 		return out, ErrUnauthenticated
@@ -80,7 +83,8 @@ func mutation[T any](ctx context.Context, s *Service, owner, key, op string, in 
 	e := s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
 		saved, b, e := tx.Replay(key)
 		if e == nil {
-			if saved != h {
+			// Receipts written before folder names were normalized hashed the trimmed input.
+			if saved != h && (legacy == nil || saved != digest([]any{op, legacy})) {
 				return ErrConflict
 			}
 			if json.Unmarshal(b, &out) != nil {
@@ -111,7 +115,7 @@ func (s *Service) CreateFolder(ctx context.Context, owner, key, name string) (Fo
 	if !ok {
 		return Folder{}, ErrInput
 	}
-	return mutation(ctx, s, owner, key, "folder.create", normalized, func(tx Transaction) (Folder, error) {
+	return mutationWithLegacyInput(ctx, s, owner, key, "folder.create", normalized, strings.TrimSpace(name), func(tx Transaction) (Folder, error) {
 		v := Folder{ID: id(), Name: normalized, Revision: 1}
 		return v, tx.SaveFolder(v)
 	})
@@ -121,8 +125,10 @@ func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, i
 	if !valid(folder, 200) || !ok || in.Revision < 1 {
 		return Folder{}, ErrInput
 	}
+	legacy := in
+	legacy.Name = strings.TrimSpace(in.Name)
 	in.Name = normalized
-	return mutation(ctx, s, owner, key, "folder.rename", []any{folder, in}, func(tx Transaction) (Folder, error) {
+	return mutationWithLegacyInput(ctx, s, owner, key, "folder.rename", []any{folder, in}, []any{folder, legacy}, func(tx Transaction) (Folder, error) {
 		v, e := tx.Folder(folder)
 		if e != nil {
 			return v, e
