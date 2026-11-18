@@ -31,6 +31,7 @@ scenario_tests:
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
   FAV-01:
     - retention_test.go#TestReplayExpiryAndBoundedRetention
+    - retention_test.go#TestReaddAfterReceiptExpires
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination

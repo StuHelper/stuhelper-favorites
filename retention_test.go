@@ -101,3 +101,26 @@ func TestReplayExpiryAndBoundedRetention(t *testing.T) {
 		t.Fatal(replayed, err)
 	}
 }
+func TestReaddAfterReceiptExpires(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	in := f.Add{Kind: "course", TargetID: "sample"}
+	old, err := x.s.Add(ctx, "account", "key", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.s.Remove(ctx, "account", "remove", old.ID, old.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.db.Exec("UPDATE favorites.requests SET created_at=now()-interval '25 hours' WHERE key='key'"); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := x.s.Add(ctx, "account", "key", in)
+	if err != nil || old.ID == fresh.ID || x.source.calls.Load() != 2 {
+		t.Fatal(fresh.ID, err, x.source.calls.Load())
+	}
+	page, err := x.s.List(ctx, "account", f.Filter{Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != fresh.ID {
+		t.Fatal(page, err)
+	}
+}
