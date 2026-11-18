@@ -47,6 +47,8 @@ scenario_tests:
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
     - http_contract_input_test.go#TestFolderNameNormalizationReplaysPreUpgradeReceipts
   PC-07:
+    - closure_activity_test.go#TestClosureUsesServiceClockAndOrderedActivityIDs
+    - closure_activity_test.go#TestClosureBatchesDatabaseRoundTrips
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:
     - activity_totals_test.go#TestUIDirectoryActivityTotalsRespectWindowAndDailyNet
