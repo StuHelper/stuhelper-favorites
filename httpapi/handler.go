@@ -79,11 +79,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			out, e = h.Service.Add(ctx, owner, key, in)
 		case len(parts) == 3 && parts[0] == "folders" && parts[2] == "rename":
-			var in f.Rename
+			var in struct {
+				Name     *string `json:"name"`
+				Revision int64   `json:"revision"`
+			}
 			if decode(w, r, &in) != nil {
 				return
 			}
-			out, e = h.Service.RenameFolder(ctx, owner, key, parts[1], in)
+			if in.Name == nil {
+				failure(w, f.ErrInput)
+				return
+			}
+			out, e = h.Service.RenameFolder(ctx, owner, key, parts[1], f.Rename{Name: *in.Name, Revision: in.Revision})
 		case len(parts) == 3 && parts[0] == "folders" && parts[2] == "delete":
 			var in struct {
 				Revision int64 `json:"revision"`

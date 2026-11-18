@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +99,17 @@ func TestFoldersDefaultPinnedDeterministicOrderResetNameAndKindCounts(t *testing
 	renamedDefault, err := x.s.RenameFolder(ctx, "alice", "rename-def-1", def.ID, f.Rename{Name: "临时默认名", Revision: def.Revision})
 	if err != nil || renamedDefault.Name != "临时默认名" || renamedDefault.Revision != def.Revision+1 {
 		t.Fatal(renamedDefault, err)
+	}
+	handler := httpapi.Handler{Service: x.s, Authenticate: func(*http.Request) (string, error) { return "alice", nil }}
+	for i, body := range []string{fmt.Sprintf(`{"revision":%d}`, renamedDefault.Revision), fmt.Sprintf(`{"revision":%d,"name":null}`, renamedDefault.Revision)} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/favorites/folders/"+def.ID+"/rename", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", fmt.Sprintf("bad-reset-%d", i))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid reset %s: HTTP %d", body, w.Code)
+		}
 	}
 	resetDefault, err := x.s.RenameFolder(ctx, "alice", "reset-def", def.ID, f.Rename{Name: "   ", Revision: renamedDefault.Revision})
 	if err != nil || !resetDefault.Default || resetDefault.Name != "" || resetDefault.Revision != renamedDefault.Revision+1 {
