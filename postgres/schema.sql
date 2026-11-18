@@ -10,6 +10,11 @@ CREATE INDEX IF NOT EXISTS favorites_items_folder ON favorites.items(owner_key,f
 CREATE TABLE IF NOT EXISTS favorites.requests(owner_key text NOT NULL,key text NOT NULL,digest text NOT NULL,result jsonb NOT NULL,PRIMARY KEY(owner_key,key));
 CREATE TABLE IF NOT EXISTS favorites.events(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,owner_key text NOT NULL,kind text NOT NULL,operation text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
 
+-- Unknown completion times of legacy receipts start a full window at migration.
+ALTER TABLE favorites.requests ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS favorites_requests_expiry ON favorites.requests(created_at,owner_key,key);
+CREATE INDEX IF NOT EXISTS favorites_events_expiry ON favorites.events(created_at,id);
+
 REVOKE ALL ON SCHEMA favorites FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 
@@ -31,3 +36,4 @@ REVOKE ALL ON TABLE favorites.activity_buckets,favorites.activity_history,favori
 CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT NULL,seq bigint GENERATED ALWAYS AS IDENTITY UNIQUE,sent_at timestamptz);
 CREATE INDEX IF NOT EXISTS favorites_outbox_pending ON favorites.outbox((data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq) WHERE sent_at IS NULL;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
+CREATE INDEX IF NOT EXISTS favorites_outbox_expiry ON favorites.outbox(sent_at,id) WHERE sent_at IS NOT NULL;
