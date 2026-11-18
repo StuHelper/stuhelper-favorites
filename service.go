@@ -116,13 +116,13 @@ func (s *Service) CreateFolder(ctx context.Context, owner, key, name string) (Fo
 		return Folder{}, ErrInput
 	}
 	return mutationWithLegacyInput(ctx, s, owner, key, "folder.create", normalized, strings.TrimSpace(name), func(tx Transaction) (Folder, error) {
-		v := Folder{ID: id(), Name: normalized, Revision: 1}
+		v := Folder{ID: id(), Name: normalized, Revision: 1, CreatedAt: s.now()}
 		return v, tx.SaveFolder(v)
 	})
 }
 func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, in Rename) (Folder, error) {
 	normalized, ok := normalizeFolderName(in.Name)
-	if !valid(folder, 200) || !ok || in.Revision < 1 {
+	if !valid(folder, 200) || (!ok && strings.TrimSpace(in.Name) != "") || in.Revision < 1 {
 		return Folder{}, ErrInput
 	}
 	legacy := in
@@ -132,6 +132,9 @@ func (s *Service) RenameFolder(ctx context.Context, owner, key, folder string, i
 		v, e := tx.Folder(folder)
 		if e != nil {
 			return v, e
+		}
+		if in.Name == "" && !v.Default {
+			return Folder{}, ErrInput
 		}
 		if v.Revision != in.Revision {
 			return v, ErrConflict
@@ -165,38 +168,51 @@ func (s *Service) DeleteFolder(ctx context.Context, owner, key, folder string, r
 }
 func (s *Service) ListFolders(ctx context.Context, owner, after string, limit int) (Folders, error) {
 	out := Folders{Items: []Folder{}}
-	if limit < 1 || limit > 100 || after != "" && !valid(after, 200) {
+	if limit < 1 || limit > 100 {
 		return out, ErrInput
 	}
 	if e := s.ensure(ctx, owner); e != nil {
 		return out, e
 	}
+	pos := FolderPosition{}
+	hash := digest(owner)
+	if after != "" {
+		if len(after) > 4096 {
+			return out, ErrInput
+		}
+		b, e := base64.RawURLEncoding.DecodeString(after)
+		if e != nil || json.Unmarshal(b, &pos) != nil || pos.Owner != hash || !valid(pos.ID, 200) || pos.CreatedAt.IsZero() {
+			return out, ErrInput
+		}
+	}
 	var e error
 	if reader, ok := s.Repo.(interface {
-		ReadFolders(context.Context, string, string, int) ([]Folder, bool, error)
+		ReadFolderPage(context.Context, string, FolderPosition, int) ([]Folder, bool, error)
 	}); ok {
 		var initialized bool
-		out.Items, initialized, e = reader.ReadFolders(ctx, owner, after, limit+1)
+		out.Items, initialized, e = reader.ReadFolderPage(ctx, owner, pos, limit+1)
 		if e != nil {
 			return out, e
 		}
 		if !initialized {
 			e = s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
 				var txErr error
-				out.Items, txErr = tx.Folders(after, limit+1)
+				out.Items, txErr = tx.Folders(pos, limit+1)
 				return txErr
 			})
 		}
 	} else {
 		e = s.Repo.Transaction(ctx, owner, func(tx Transaction) error {
 			var txErr error
-			out.Items, txErr = tx.Folders(after, limit+1)
+			out.Items, txErr = tx.Folders(pos, limit+1)
 			return txErr
 		})
 	}
 	if len(out.Items) > limit {
 		out.Items = out.Items[:limit]
-		out.Next = out.Items[limit-1].ID
+		last := out.Items[limit-1]
+		b, _ := json.Marshal(FolderPosition{ID: last.ID, Position: last.Position, CreatedAt: last.CreatedAt, Default: last.Default, Owner: hash})
+		out.Next = base64.RawURLEncoding.EncodeToString(b)
 	}
 	return out, e
 }
