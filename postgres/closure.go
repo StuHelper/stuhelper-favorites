@@ -47,7 +47,7 @@ func (r *Repository) CloseOwner(ctx context.Context, owner, id string) error {
 }
 
 func (t *transaction) removeOwnerActivity() error {
-	rows, e := t.tx.QueryContext(t.ctx, `SELECT kind,canonical_target_id,count(*) FROM favorites.items WHERE owner_key=$1 AND kind IN('course','teacher') GROUP BY kind,canonical_target_id ORDER BY kind,canonical_target_id`, t.owner)
+	rows, e := t.tx.QueryContext(t.ctx, `SELECT kind,COALESCE(NULLIF(canonical_target_id,''),target_id) AS target,count(*) FROM favorites.items WHERE owner_key=$1 AND kind IN('course','teacher') GROUP BY kind,COALESCE(NULLIF(canonical_target_id,''),target_id) ORDER BY kind,target`, t.owner)
 	if e != nil {
 		return safe(e)
 	}
