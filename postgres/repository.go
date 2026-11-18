@@ -179,11 +179,19 @@ func (r *Repository) Transaction(ctx context.Context, owner string, run func(f.T
 func (t *transaction) Replay(key string) (string, json.RawMessage, error) {
 	var h string
 	var b []byte
-	e := t.tx.QueryRowContext(t.ctx, `SELECT digest,result FROM favorites.requests WHERE owner_key=$1 AND key=$2`, t.owner, key).Scan(&h, &b)
+	var expired bool
+	e := t.tx.QueryRowContext(t.ctx, `SELECT digest,result,created_at <= now()-interval '24 hours' FROM favorites.requests WHERE owner_key=$1 AND key=$2`, t.owner, key).Scan(&h, &b, &expired)
+	if e == nil && expired {
+		// Writers for this owner already hold the advisory lock. The cleaner may have removed the receipt.
+		if _, err := t.tx.ExecContext(t.ctx, `DELETE FROM favorites.requests WHERE owner_key=$1 AND key=$2`, t.owner, key); err != nil {
+			return "", nil, safeOp("requests.expire", err)
+		}
+		return "", nil, f.ErrNotFound
+	}
 	return h, b, safeOp("requests.replay", e)
 }
 func (t *transaction) SaveReplay(key, h string, b json.RawMessage) error {
-	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.requests VALUES($1,$2,$3,$4)`, t.owner, key, h, string(b))
+	_, e := t.tx.ExecContext(t.ctx, `INSERT INTO favorites.requests(owner_key,key,digest,result) VALUES($1,$2,$3,$4)`, t.owner, key, h, string(b))
 	return safeOp("requests.save", e)
 }
 func (t *transaction) Event(kind, key string) error {
@@ -322,7 +330,7 @@ func (r *Repository) NeedsTargetResolution(ctx context.Context, owner, key strin
 	var closed, known, folderOK bool
 	err := r.DB.QueryRowContext(ctx, `SELECT
    EXISTS(SELECT FROM favorites.owners WHERE owner_key=$1 AND closure_id IS NOT NULL),
-   EXISTS(SELECT FROM favorites.requests WHERE owner_key=$1 AND key=$2)
+   EXISTS(SELECT FROM favorites.requests WHERE owner_key=$1 AND key=$2 AND created_at > now()-interval '24 hours')
      OR EXISTS(SELECT FROM favorites.items WHERE owner_key=$1 AND kind=$3 AND target_id=$4),
    $5='' OR EXISTS(SELECT FROM favorites.folders WHERE owner_key=$1 AND id=$5)`,
 		owner, key, in.Kind, in.TargetID, in.FolderID).Scan(&closed, &known, &folderOK)

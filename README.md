@@ -18,6 +18,12 @@
 
 写操作按账号串行，`Idempotency-Key` 为 1 至 128 个非空白可打印 ASCII 字符。业务变化、幂等结果与审计事件在一个事务提交。同键不同内容或过期修订返回 409。新增收藏先在事务外以 3 秒上限读取目标，来源超时时返回 503，失败不保存收藏且不占用写事务连接。幂等结果保存在本模块，前端不得复用已经使用过的键。
 
+完成响应保留 24 小时。到期键重新执行业务校验，账号归属及收藏唯一性继续生效。旧库升级时从迁移时间起为已有响应保留完整的 24 小时。
+
+维护进程以独立身份调用 `postgres.Repository.PruneExpired(ctx, limit)`。每次在同一事务中分别清理到期回执、已确认满 90 天的 Outbox 和满 12 个月的审计。每类最多 1 至 1000 条，返回三类已提交删除数之和。待确认事件保留。
+
+清理身份需要 favorites schema 的 USAGE 和 requests、outbox、events 的 SELECT、DELETE。恢复备份后可重复调用至返回零。
+
 ## 检查与运行
 
 按锁文件执行 `make setup`，设置独立 PostgreSQL 的 `STUHELPER_FAVORITES_TEST_DSN` 后执行 `make check`。CI 使用最新稳定 PostgreSQL 元包。本模块没有访问真实账号或生产数据的脚本。

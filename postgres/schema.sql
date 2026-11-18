@@ -13,6 +13,11 @@ CREATE INDEX IF NOT EXISTS favorites_items_folder ON favorites.items(owner_key,f
 CREATE TABLE IF NOT EXISTS favorites.requests(owner_key text NOT NULL,key text NOT NULL,digest text NOT NULL,result jsonb NOT NULL,PRIMARY KEY(owner_key,key));
 CREATE TABLE IF NOT EXISTS favorites.events(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,owner_key text NOT NULL,kind text NOT NULL,operation text NOT NULL,created_at timestamptz NOT NULL DEFAULT now());
 
+-- Unknown completion times of legacy receipts start a full window at migration.
+ALTER TABLE favorites.requests ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+CREATE INDEX IF NOT EXISTS favorites_requests_expiry ON favorites.requests(created_at,owner_key,key);
+CREATE INDEX IF NOT EXISTS favorites_events_expiry ON favorites.events(created_at,id);
+
 REVOKE ALL ON SCHEMA favorites FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA favorites FROM PUBLIC;
 
@@ -35,6 +40,7 @@ CREATE TABLE IF NOT EXISTS favorites.outbox(id text PRIMARY KEY,data jsonb NOT N
 CREATE INDEX IF NOT EXISTS favorites_outbox_pending_seq ON favorites.outbox(seq) WHERE sent_at IS NULL;
 DROP INDEX IF EXISTS favorites.favorites_outbox_pending;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
+CREATE INDEX IF NOT EXISTS favorites_outbox_expiry ON favorites.outbox(sent_at,id) WHERE sent_at IS NOT NULL;
 
 -- Deduplicate once, after the activity tables exist. A removed favorite has the
 -- same UTC accounting day as an ordinary cancellation, including across days.
