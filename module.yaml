@@ -49,6 +49,7 @@ scenario_tests:
     - batch_quota_test.go#TestBatchMoveRemoveAtomicityActivityAggregationAndOwnerQuotas
     - batch_quota_test.go#TestBatchRemovalMatchesClosureActivityOrder
     - batch_quota_test.go#TestBatchRemovalCoalescesLegacyCanonicalDuplicates
+    - errors_refresh_test.go#TestTypedErrorReasonsAndTitleSnapshotRefresh
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
     - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility

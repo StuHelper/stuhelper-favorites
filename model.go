@@ -26,6 +26,40 @@ type KindCounts struct {
 	Teacher  int64 `json:"teacher"`
 	Resource int64 `json:"resource"`
 }
+type Reason string
+
+const (
+	ReasonFolderNameConflict     Reason = "folder_name_conflict"
+	ReasonRevisionConflict       Reason = "revision_conflict"
+	ReasonIdempotencyConflict    Reason = "idempotency_conflict"
+	ReasonFolderMismatch         Reason = "folder_mismatch"
+	ReasonDefaultFolderProtected Reason = "default_folder_protected"
+	ReasonAdmissionRequired      Reason = "admission_required"
+	ReasonOwnerClosed            Reason = "owner_closed"
+)
+
+type reasonedError struct {
+	base   error
+	reason Reason
+}
+
+func (e reasonedError) Error() string { return e.base.Error() + ": " + string(e.reason) }
+func (e reasonedError) Unwrap() error { return e.base }
+
+func WithReason(base error, reason Reason) error {
+	if base == nil || reason == "" {
+		return base
+	}
+	return reasonedError{base: base, reason: reason}
+}
+func ErrorReason(err error) Reason {
+	var r reasonedError
+	if errors.As(err, &r) {
+		return r.reason
+	}
+	return ""
+}
+
 type Folder struct {
 	CreatedAt  time.Time  `json:"-"`
 	KindCounts KindCounts `json:"kind_counts"`
