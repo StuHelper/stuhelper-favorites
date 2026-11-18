@@ -33,6 +33,7 @@ scenario_tests:
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
+    - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
   PC-07:
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:

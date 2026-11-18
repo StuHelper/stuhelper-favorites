@@ -11,6 +11,9 @@ func (r *Repository) ActivityTotals(ctx context.Context, kind string, from, unti
 	if kind != "course" && kind != "teacher" || !f.ActivityDay(from) || !f.ActivityDay(until) || !from.Before(until) || until.Sub(from) > 366*24*time.Hour {
 		return nil, f.ErrInput
 	}
+	if !r.readyDB() {
+		return nil, f.ErrUnavailable
+	}
 	rows, err := r.DB.QueryContext(ctx, `SELECT target_id,sum(GREATEST(first_count,0)) FROM favorites.activity_buckets
  WHERE kind=$1 AND day>=$2 AND day<$3 AND visible GROUP BY target_id ORDER BY target_id LIMIT 100001`, kind, from, until)
 	if err != nil {

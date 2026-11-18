@@ -25,6 +25,9 @@ func (r *Repository) ReadActivity(ctx context.Context, id string) (m.Activity, e
 	if _, _, e := m.ParseActivityID(id); e != nil {
 		return d, e
 	}
+	if !r.readyDB() {
+		return d, m.ErrUnavailable
+	}
 	var raw []byte
 	if e := r.DB.QueryRowContext(ctx, `SELECT data FROM favorites.activity_buckets WHERE id=$1`, id).Scan(&raw); e != nil {
 		return d, safe(e)
@@ -45,6 +48,9 @@ func (r *Repository) ActivitySnapshot(ctx context.Context, fromDay, toDay time.T
 		if e != nil || json.Unmarshal(raw, &state) != nil || state.Version != 1 || !state.From.Equal(fromDay) || !state.To.Equal(toDay) || state.Limit != limit || state.After == "" || len(state.After) > 512 || state.Visibility == "" || !time.Now().Before(state.Expires) {
 			return out, "", m.ErrInput
 		}
+	}
+	if !r.readyDB() {
+		return out, "", m.ErrUnavailable
 	}
 	tx, e := r.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if e != nil {
@@ -105,6 +111,9 @@ func (r *Repository) ActivitySnapshot(ctx context.Context, fromDay, toDay time.T
 func (r *Repository) PruneActivityHistory(ctx context.Context, beforeDay time.Time, limit int) (int64, error) {
 	if !m.ActivityDay(beforeDay) || limit < 1 || limit > 1000 {
 		return 0, m.ErrInput
+	}
+	if !r.readyDB() {
+		return 0, m.ErrUnavailable
 	}
 	result, e := r.DB.ExecContext(ctx, `DELETE FROM favorites.activity_history WHERE (id,revision) IN (SELECT h.id,h.revision FROM favorites.activity_history h JOIN favorites.activity_buckets b USING(id) WHERE h.day<$1 AND h.revision<b.revision ORDER BY h.day,h.id,h.revision LIMIT $2)`, beforeDay, limit)
 	if e != nil {
