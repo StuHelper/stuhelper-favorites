@@ -12,7 +12,7 @@ func (r *Repository) PendingOutbox(ctx context.Context, limit int, excludeSubjec
 	if limit < 1 || limit > 100 || len(excludeSubjects) > 1000 {
 		return nil, m.ErrInput
 	}
-	rows, e := r.DB.QueryContext(ctx, `SELECT data FROM favorites.outbox WHERE sent_at IS NULL AND NOT ((data->>'subject')=ANY(COALESCE($2::text[],ARRAY[]::text[]))) ORDER BY (data->>'source') COLLATE "C",(data->>'subject') COLLATE "C",seq LIMIT $1`, limit, excludeSubjects)
+	rows, e := r.DB.QueryContext(ctx, `SELECT data FROM favorites.outbox WHERE sent_at IS NULL AND NOT ((data->>'subject')=ANY(COALESCE($2::text[],ARRAY[]::text[]))) ORDER BY seq LIMIT $1`, limit, excludeSubjects)
 	if e != nil {
 		return nil, safe(e)
 	}

@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-15
+updated: 2026-11-18
 ---
 
 # 热门活动来源
@@ -43,6 +43,8 @@ Service.CurrentActivity(ctx, principal, activityID) 返回 Activity、bool、err
 统计目标按写入时的规范 ID 绑定。目录合并不搬运旧目标的历史计数，当前查询拒绝已经变成别名的旧目标。后续新增使用新的规范 ID，避免把不可证明的历史贡献复制到另一个对象。
 
 OutboxChannel 为 favorites_outbox。PendingOutbox(ctx, limit, excludeSubjects) 每批最多 100 条，最多排除 1000 个主题，排除在数据库 LIMIT 前完成。ConfirmOutbox(ctx, id) 在消费者持久提交后调用，重复确认保留首次 sent_at。
+
+Relay 先排除退避主题，再按可见待投递记录的 seq 升序取一批。较晚入队的课程事件不会挤掉已在等待的教师事件。同一主题内，活动桶行锁保证修订顺序。
 
 内容事件和活动事件共用同一 outbox，relay 按 type 分发。backend 负责 LISTEN、启动和重连补读、60 秒兜底、退避及待处理主题；模块不扫描业务表寻找待投递变化。
 
