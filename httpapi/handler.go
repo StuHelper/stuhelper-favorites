@@ -177,7 +177,7 @@ func parseTargetIDs(rawQuery string) ([]string, bool) {
 		if key != "target_ids" {
 			continue
 		}
-		if found || len(v) > 80100 {
+		if found {
 			return nil, false
 		}
 		found = true
@@ -186,7 +186,10 @@ func parseTargetIDs(rawQuery string) ([]string, bool) {
 	if !found {
 		return nil, true
 	}
-	parts := strings.Split(raw, ",")
+	parts := strings.SplitN(raw, ",", 101)
+	if len(parts) > 100 {
+		return nil, false
+	}
 	out := make([]string, len(parts))
 	for i, item := range parts {
 		unescaped, err := url.QueryUnescape(item)
@@ -202,12 +205,10 @@ func decode(w http.ResponseWriter, r *http.Request, v any) error {
 		failure(w, f.ErrInput)
 		return f.ErrInput
 	}
-	if rawCT := r.Header.Get("Content-Type"); rawCT != "" {
-		mediaType, _, err := mime.ParseMediaType(rawCT)
-		if err != nil || mediaType != "application/json" {
-			failure(w, f.ErrInput)
-			return f.ErrInput
-		}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		failure(w, f.ErrInput)
+		return f.ErrInput
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	decoder.DisallowUnknownFields()

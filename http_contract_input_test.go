@@ -122,6 +122,13 @@ func TestHTTPContractEncodingInputBoundariesAndSDKCompatibility(t *testing.T) {
 		handler.ServeHTTP(w, r)
 		return w
 	}
+	if w := rawReq("POST", "/api/v1/favorites/folders", "", `{"name":"missing"}`); w.Code != 400 {
+		t.Errorf("missing Content-Type returned %d", w.Code)
+	}
+	var stored int
+	if err := x.db.QueryRow("SELECT count(*) FROM favorites.folders WHERE name='missing'").Scan(&stored); err != nil || stored != 0 {
+		t.Fatal(stored, err)
+	}
 	if w := rawReq("POST", "/api/v1/favorites/folders", "text/plain", `{"name":"Plain"}`); w.Code != 400 {
 		t.Fatalf("expected 400 for text/plain POST, got %d", w.Code)
 	}

@@ -14,6 +14,8 @@
 
 `GET /api/v1/favorites/items?kind=course&target_ids=course-a,course-b` 返回本人对应收藏。`target_ids` 按字面量逗号切分后逐项解码，最多 100 项，必须同时提供 `kind`，首尾空白与空项返回 400。重复 ID 按一个目标查询，分页及其他筛选同时生效。
 
+写请求须发送 `Content-Type: application/json`，缺失或类型不符返回 400。
+
 写操作按账号串行，`Idempotency-Key` 为 1 至 128 个非空白可打印 ASCII 字符，业务变化、幂等结果与审计事件在一个事务提交。同键不同内容或过期修订返回 409。目标读取最多 3 秒，超时或失败不保存收藏并返回 503。幂等结果保存在本模块，前端不得复用已经使用过的键。
 
 ## 检查与运行

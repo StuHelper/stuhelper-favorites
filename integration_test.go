@@ -268,6 +268,7 @@ func TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay(t *testing.T) {
 	h := httpapi.Handler{Service: s, Authenticate: func(r *http.Request) (string, error) { return r.Header.Get("Test-Session"), nil }}
 	request := func(method, path, body, owner string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/v1/favorites/"+path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Test-Session", owner)
 		r.Header.Set("Idempotency-Key", "http")
 		r.Header.Set("X-Owner", "alice")
