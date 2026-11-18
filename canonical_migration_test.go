@@ -59,7 +59,7 @@ func TestCanonicalTargetDeduplicationAndLegacyMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
+	t.Cleanup(func() { _ = admin.Close() })
 	legacyDBName := fmt.Sprintf("favorites_legacy_%d", time.Now().UnixNano())
 	if _, err := admin.Exec(`CREATE DATABASE ` + legacyDBName); err != nil {
 		t.Fatal(err)
@@ -128,5 +128,35 @@ INSERT INTO favorites.items(owner_key,id,kind,target_id,title,folder_id,revision
 	}
 	if err := legacySvc.CloseOwner(ctx, "empty-c2", "55555555-5555-4555-8555-555555555555"); err != nil {
 		t.Fatalf("CloseOwner failed on empty canonical_target_id: %v", err)
+	}
+}
+
+func TestMigrationKeepsOldestCanonicalFavoritePerOwner(t *testing.T) {
+	x := setup(t)
+	ctx := context.Background()
+	_, err := x.db.Exec(`DROP INDEX favorites.favorites_items_canonical;
+ INSERT INTO favorites.owners(owner_key) VALUES('one'),('two');
+ INSERT INTO favorites.folders(owner_key,id,name,is_default,revision)
+ VALUES('one','a','',true,1),('one','b','other',false,1),('two','a','',true,1);
+ INSERT INTO favorites.items(owner_key,id,kind,target_id,canonical_target_id,title,folder_id,revision,created_at)
+ VALUES('one','old','course','alias','canonical','snapshot','a',3,'2024-01-01'),
+ ('one','new','course','canonical','canonical','new','b',1,'2024-01-02'),
+ ('two','other','course','canonical','canonical','snapshot','a',1,'2024-01-01')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := postgres.Migrate(ctx, x.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		owner, id string
+		rev       int64
+	}{{"one", "old", 3}, {"two", "other", 1}} {
+		items, err := x.s.List(ctx, tc.owner, f.Filter{Limit: 10})
+		if err != nil || len(items.Items) != 1 || items.Items[0].ID != tc.id || items.Items[0].Revision != tc.rev || items.Items[0].FolderID != "a" {
+			t.Fatal(tc, items, err)
+		}
 	}
 }
