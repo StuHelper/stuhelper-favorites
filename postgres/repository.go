@@ -311,7 +311,7 @@ func (t *transaction) SaveItem(v f.Item) error {
 		return safe(e)
 	}
 	if !exists && (v.Kind == "course" || v.Kind == "teacher") {
-		return t.changeActivity(v.Kind, canonical, "", v.CreatedAt, 1, 0, nil, v.CreatedAt)
+		return t.changeActivity(v.Kind, canonical, v.CreatedAt, 1, v.CreatedAt)
 	}
 	return nil
 }
@@ -322,7 +322,7 @@ func (t *transaction) DeleteItem(id string, at time.Time) error {
 		return safe(e)
 	}
 	if kind == "course" || kind == "teacher" {
-		return t.changeActivity(kind, target, "", at, -1, 0, nil, at)
+		return t.changeActivity(kind, target, at, -1, at)
 	}
 	return nil
 }
@@ -389,7 +389,7 @@ func (t *transaction) DeleteItems(ids []string, at time.Time) ([]string, error) 
 	}
 	slices.SortFunc(deltas, func(a, b bucketDelta) int { return strings.Compare(a.activityID, b.activityID) })
 	for _, d := range deltas {
-		if err := t.changeActivity(d.kind, d.target, "", at, d.delta, 0, nil, at); err != nil {
+		if err := t.changeActivity(d.kind, d.target, at, d.delta, at); err != nil {
 			return nil, err
 		}
 	}

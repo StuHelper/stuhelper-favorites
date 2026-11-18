@@ -14,6 +14,8 @@
 
 个人中心支持 `POST /api/v1/favorites/items/batch-move` 与 `POST /api/v1/favorites/items/batch-remove`，单次最多原子处理 100 条本人收藏，并按规范目标合并活动净变化。单账号默认最多保存 200 个收藏夹和 10000 条收藏，超限返回 409，删除后释放配额。
 
+进程内端口 `Service.CourseReferences` 按 1 至 100 项边界返回本人已收藏的课程目标 ID 有序去重集合。
+
 名称经 NFC 归一化并去掉首尾 Unicode 空白，长度为 1 至 20 个 Unicode 码点，拒绝控制字符与不可见格式字符。同一账号的名称区分大小写且不得重复，数据库唯一约束覆盖并发创建和改名。未命名的默认夹返回空名称，由客户端显示本地化默认标签。显式传入空名称或全空白名称可重置默认夹。
 
 读接口每页最多 100 条。收藏夹列表按 `is_default DESC, position ASC, created_at ASC, id ASC` 稳定排序，默认夹固定置顶，游标绑定账号。收藏夹同时返回总条数 `item_count` 与按 `course`、`teacher`、`resource` 拆分的 `kind_counts`，均不受列表筛选影响。
