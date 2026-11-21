@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # 热门活动来源
