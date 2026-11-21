@@ -10,8 +10,8 @@ import (
 
 // Bucket row locks serialize independent actors. Callers update keys in ID order
 // when an operation affects multiple buckets, avoiding inverse lock acquisition.
-func (t *transaction) changeActivity(kind, target string, day time.Time, delta int64, at time.Time) error {
-	if err := t.changeActivities([]activityDelta{{kind: kind, target: target, delta: delta}}, day, at); err != nil {
+func (t *transaction) changeActivity(kind, target string, delta int64, at time.Time) error {
+	if err := t.changeActivities([]activityDelta{{kind: kind, target: target, delta: delta}}, at); err != nil {
 		return err
 	}
 	return t.notifyOutbox()
@@ -23,14 +23,14 @@ type activityDelta struct {
 }
 
 // Lock all buckets in protocol order, then persist their snapshots and envelopes together.
-func (t *transaction) changeActivities(changes []activityDelta, day, at time.Time) error {
-	day = day.UTC().Truncate(24 * time.Hour)
+func (t *transaction) changeActivities(changes []activityDelta, at time.Time) error {
+	day := m.ActivityDate(at)
 	ids := make([]string, len(changes))
 	kinds := make([]string, len(changes))
 	targets := make([]string, len(changes))
 	deltas := make([]int64, len(changes))
 	for i, change := range changes {
-		ids[i] = m.ActivityID(change.kind, change.target, day)
+		ids[i] = m.ActivityID(change.kind, change.target, at)
 		if _, _, err := m.ParseActivityID(ids[i]); err != nil {
 			return err
 		}
@@ -38,7 +38,7 @@ func (t *transaction) changeActivities(changes []activityDelta, day, at time.Tim
 	}
 	rows, e := t.tx.QueryContext(t.ctx, `INSERT INTO favorites.activity_buckets AS b
   (id,kind,target_id,day,first_count,revision,visible)
-  SELECT id,kind,target,$5,delta,1,false
+  SELECT id,kind,target,$5::text::date,delta,1,false
   FROM unnest($1::text[],$2::text[],$3::text[],$4::bigint[]) AS v(id,kind,target,delta)
   ORDER BY id COLLATE "C"
   ON CONFLICT(id) DO UPDATE SET first_count=b.first_count+EXCLUDED.first_count,
@@ -59,13 +59,13 @@ func (t *transaction) changeActivities(changes []activityDelta, day, at time.Tim
 		if first > 1000000000 {
 			return m.ErrUnavailable
 		}
-		d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day.Format(time.DateOnly), Revision: revision, Visible: first > 0, Metrics: map[string]int64{"favorites": first}}
+		d := m.Activity{Source: "favorites", ID: id, Target: m.ActivityTarget{Source: "catalog", Kind: kind, ID: target}, Day: day, Revision: revision, Visible: first > 0, Metrics: map[string]int64{"favorites": first}}
 		data, e := json.Marshal(d)
 		if e != nil {
 			return m.ErrUnavailable
 		}
 		eventID := fmt.Sprintf("activity:%x:%d", sha256.Sum256([]byte(id)), revision)
-		envelopes = append(envelopes, m.Envelope{SpecVersion: "1.0", ID: eventID, Source: "favorites", Type: "discovery.activity.v1", Subject: id, Time: at, Data: data})
+		envelopes = append(envelopes, m.Envelope{SpecVersion: "1.0", ID: eventID, Source: "favorites", Type: m.ActivityEventType, Subject: id, Time: at, Data: data})
 	}
 	if e := rows.Err(); e != nil {
 		return safe(e)

@@ -11,7 +11,7 @@ import (
 func TestHistoryPruneAdvancesOnceForNonemptyBatch(t *testing.T) {
 	x := setup(t)
 	ctx := context.Background()
-	day := x.s.Now()
+	day := f.ActivityDayStart(x.s.Now())
 	for _, owner := range []string{"a", "b", "c", "d"} {
 		if _, err := x.s.Add(ctx, owner, "add", f.Add{Kind: "course", TargetID: "test"}); err != nil {
 			t.Fatal(err)

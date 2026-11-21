@@ -67,13 +67,87 @@ DROP INDEX IF EXISTS favorites.favorites_outbox_pending;
 REVOKE ALL ON favorites.outbox FROM PUBLIC;
 CREATE INDEX IF NOT EXISTS favorites_outbox_expiry ON favorites.outbox(sent_at,id) WHERE sent_at IS NOT NULL;
 
--- Deduplicate once, after the activity tables exist. A removed favorite has the
--- same UTC accounting day as an ordinary cancellation, including across days.
+-- Each row stores the signed activity transported from one UTC date into the
+-- following Beijing date. Both runtime generations keep it current via Outbox.
+ALTER TABLE favorites.activity_retention ADD COLUMN IF NOT EXISTS shanghai_day boolean NOT NULL DEFAULT false;
+ALTER TABLE favorites.activity_retention ADD COLUMN IF NOT EXISTS calendar_initialized boolean NOT NULL DEFAULT false;
+ALTER TABLE favorites.activity_history ADD COLUMN IF NOT EXISTS signed_count bigint;
+ALTER TABLE favorites.outbox ADD COLUMN IF NOT EXISTS calendar_conversion boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS favorites.activity_calendar_shifts(
+    kind text NOT NULL,target_id text NOT NULL,utc_day date NOT NULL,amount bigint NOT NULL,
+    PRIMARY KEY(kind,target_id,utc_day)
+);
+ALTER TABLE favorites.activity_calendar_shifts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE favorites.activity_calendar_shifts FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION favorites.capture_activity_signed_count() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+    IF NEW.signed_count IS NULL THEN
+        SELECT first_count INTO STRICT NEW.signed_count
+        FROM favorites.activity_buckets WHERE id=NEW.id AND revision=NEW.revision;
+    END IF;
+    RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION favorites.capture_activity_signed_count() FROM PUBLIC;
+CREATE OR REPLACE TRIGGER capture_activity_signed_count BEFORE INSERT ON favorites.activity_history
+    FOR EACH ROW EXECUTE FUNCTION favorites.capture_activity_signed_count();
+
+CREATE OR REPLACE FUNCTION favorites.track_activity_calendar() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE
+    is_shanghai boolean;
+    event_type text := NEW.data->>'type';
+    occurred_at timestamptz;
+    event_utc_day date;
+    event_beijing_day date;
+    bucket record;
+    previous_count bigint := 0;
+BEGIN
+    IF NEW.calendar_conversion OR coalesce(event_type,'') NOT IN ('discovery.activity.v1','discovery.activity.v2') THEN
+        RETURN NULL;
+    END IF;
+    SELECT shanghai_day INTO STRICT is_shanghai FROM favorites.activity_retention WHERE singleton;
+    -- PostgreSQL stores microseconds. Truncate sub-microsecond digits so an
+    -- old writer's final nanosecond before midnight stays on that date.
+    occurred_at := regexp_replace(NEW.data->>'time','([.][0-9]{6})[0-9]+','\1')::timestamptz;
+    event_utc_day := (occurred_at AT TIME ZONE 'UTC')::date;
+    event_beijing_day := (occurred_at AT TIME ZONE 'Asia/Shanghai')::date;
+    SELECT kind,target_id,day,first_count,revision INTO STRICT bucket
+    FROM favorites.activity_buckets WHERE id=NEW.data->>'subject';
+    IF event_type <> (CASE WHEN is_shanghai THEN 'discovery.activity.v2' ELSE 'discovery.activity.v1' END)
+        OR bucket.day IS DISTINCT FROM (CASE WHEN is_shanghai THEN event_beijing_day ELSE event_utc_day END)
+        OR bucket.revision IS DISTINCT FROM (NEW.data->'data'->>'revision')::bigint THEN
+        RAISE EXCEPTION 'favorites activity event does not match accounting calendar or revision';
+    END IF;
+    IF event_beijing_day = event_utc_day THEN
+        RETURN NULL;
+    END IF;
+    IF bucket.revision > 1 THEN
+        SELECT signed_count INTO STRICT previous_count
+        FROM favorites.activity_history WHERE id=NEW.data->>'subject' AND revision=bucket.revision-1;
+        IF previous_count IS NULL THEN
+            RAISE EXCEPTION 'favorites activity predecessor has no signed count';
+        END IF;
+    END IF;
+    INSERT INTO favorites.activity_calendar_shifts AS shifts(kind,target_id,utc_day,amount)
+    VALUES(bucket.kind,bucket.target_id,event_utc_day,bucket.first_count-previous_count)
+    ON CONFLICT(kind,target_id,utc_day) DO UPDATE SET amount=shifts.amount+EXCLUDED.amount;
+    RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION favorites.track_activity_calendar() FROM PUBLIC;
+CREATE OR REPLACE TRIGGER track_activity_calendar AFTER INSERT ON favorites.outbox
+    FOR EACH ROW EXECUTE FUNCTION favorites.track_activity_calendar();
+
+-- Deduplicate once, after the activity tables exist. Removing a duplicate has
+-- the same accounting day as an ordinary cancellation, including across days.
 DO $$
 DECLARE
     removed_target record;
     migration_time timestamptz := transaction_timestamp();
-    bucket_day date := (migration_time AT TIME ZONE 'UTC')::date;
+    is_shanghai boolean := (SELECT shanghai_day FROM favorites.activity_retention WHERE singleton);
+    bucket_day date := (migration_time AT TIME ZONE CASE WHEN is_shanghai THEN 'Asia/Shanghai' ELSE 'UTC' END)::date;
+    event_type text := CASE WHEN is_shanghai THEN 'discovery.activity.v2' ELSE 'discovery.activity.v1' END;
     bucket_id text;
     net_count bigint;
     bucket_revision bigint;
@@ -113,9 +187,10 @@ BEGIN
         UPDATE favorites.activity_buckets SET visible=bucket_visible,data=snapshot WHERE id=bucket_id;
         INSERT INTO favorites.activity_history(id,revision,day,data) VALUES(bucket_id,bucket_revision,bucket_day,snapshot);
         event_id := 'activity:' || encode(sha256(convert_to(bucket_id,'UTF8')),'hex') || ':' || bucket_revision;
-        INSERT INTO favorites.outbox(id,data) VALUES(event_id,jsonb_build_object(
-            'specversion','1.0','id',event_id,'source','favorites','type','discovery.activity.v1',
-            'subject',bucket_id,'time',migration_time,'data',snapshot));
+        INSERT INTO favorites.outbox(id,data,created_at,calendar_conversion) VALUES(event_id,jsonb_build_object(
+            'specversion','1.0','id',event_id,'source','favorites','type',event_type,
+            'subject',bucket_id,'time',migration_time,'data',snapshot),migration_time,
+            NOT (SELECT calendar_initialized FROM favorites.activity_retention WHERE singleton));
         PERFORM pg_notify('favorites_outbox','');
     END LOOP;
 END $$;

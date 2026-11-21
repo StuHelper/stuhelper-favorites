@@ -18,7 +18,7 @@ type ActivityTotalsReader interface {
 // join only currently readable catalog targets before returning any result.
 // Counts use the existing daily net-addition rule, clamped per day at zero.
 func (s *Service) DirectoryActivitySnapshot(ctx context.Context, kind string, from, until time.Time) ([]ActivityTotal, error) {
-	if kind != "course" && kind != "teacher" || !ActivityDay(from) || !ActivityDay(until) || !from.Before(until) || until.Sub(from) > 366*24*time.Hour {
+	if kind != "course" && kind != "teacher" || !ActivityWindow(from, until) {
 		return nil, ErrInput
 	}
 	repo, ok := s.Repo.(ActivityTotalsReader)

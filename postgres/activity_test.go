@@ -76,9 +76,9 @@ func activityDatabase(t *testing.T) (*Repository, *Repository, *sql.DB) {
 func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	repo, cleaner, db := activityDatabase(t)
 	ctx := context.Background()
-	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	day := m.ActivityDayStart(time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 	change := func(tx *sql.Tx, id string, delta int64) error {
-		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, day, delta, day)
+		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, delta, day)
 	}
 	apply := func(id string, delta int64) error {
 		tx, e := repo.DB.BeginTx(ctx, nil)
@@ -273,7 +273,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 		t.Fatal("latest tombstone removed", current, e)
 	}
 	// A failed outbox insert cannot leave a partial counter revision.
-	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v1') NOT VALID`); e != nil {
+	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v2') NOT VALID`); e != nil {
 		t.Fatal(e)
 	}
 	current, e = repo.ReadActivity(ctx, m.ActivityID("course", "a", day))
