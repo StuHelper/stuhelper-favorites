@@ -245,7 +245,7 @@ func TestBatchRemovalMatchesClosureActivityOrder(t *testing.T) {
 		}
 	}
 	check := func(revision int) {
-		rows, err := x.db.Query(`SELECT data->'data'->'target'->>'id' FROM favorites.outbox WHERE data->>'type'='discovery.activity.v1' AND (data->'data'->>'revision')::bigint=$1 ORDER BY seq`, revision)
+		rows, err := x.db.Query(`SELECT data->'data'->'target'->>'id' FROM favorites.outbox WHERE data->>'type'='discovery.activity.v2' AND (data->'data'->>'revision')::bigint=$1 ORDER BY seq`, revision)
 		if err != nil {
 			t.Fatal(err)
 		}

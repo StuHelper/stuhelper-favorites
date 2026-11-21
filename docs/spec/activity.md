@@ -1,16 +1,16 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-21
+updated: 2026-11-22
 ---
 
 # 热门活动来源
 
 ## 协议与数据归属
 
-活动采用 search 的 discovery-activity Schema，版本 1.0.0。来源提交和 SHA-256 由 [来源记录](https://github.com/StuHelper/stuhelper-favorites/blob/develop/contracts/discovery-activity.source.json) 固定。测试核对摘要，并按 Schema 验证 Outbox 事件及指标归属。
+活动采用 search 的 discovery-activity Schema，版本 2.0.0。来源提交和 SHA-256 由 [来源记录](https://github.com/StuHelper/stuhelper-favorites/blob/develop/contracts/discovery-activity.source.json) 固定。测试核对摘要，并按 Schema 验证 Outbox 事件及指标归属。
 
-事件类型为 `discovery.activity.v1`，`source` 为 `favorites`，`target.source` 为 `catalog`，唯一指标是 `favorites`。活动 ID 由种类、base64url 编码的规范目标 ID 和 UTC 日期组成，与 `subject` 相同，总长最多 512 字符。目标 ID 最多 200 个码点，拒绝控制字符。
+事件类型为 `discovery.activity.v2`，`source` 为 `favorites`，`target.source` 为 `catalog`，唯一指标是 `favorites`。活动 ID 由种类、base64url 编码的规范目标 ID 和 北京时间日期组成，与 `subject` 相同，总长最多 512 字符。目标 ID 最多 200 个码点，拒绝控制字符。
 
 每个对象日维护独立单调修订。事件完整替换日快照，零值显式发送；零计数墓碑不会被迟到事件重新计数。事件、计数和修订历史在同一业务事务提交，并调用 pg_notify('favorites_outbox', '')。
 
@@ -22,7 +22,7 @@ favorites 等于当日新增数减当日取消数，对外下限为零。内部�
 
 跨日取消归属于取消操作当天，不重写原新增日。例：周一新增一条，周二取消，周一为 1，周二为 0；周二随后新增一条仍为 0，再新增一条才为 1。账号注销删除收藏时也计入注销当天，重复注销无额外效果。
 
-注销使用服务时钟确定 UTC 日期。仓储按完整活动 ID 的字节顺序，每批处理最多 256 个统计目标。全部扣减、修订历史、Outbox 和账号封存在同一事务提交。产生事件时通知 Relay 一次。
+注销使用服务时钟确定 北京时间日期。仓储按完整活动 ID 的字节顺序，每批处理最多 256 个统计目标。全部扣减、修订历史、Outbox 和账号封存在同一事务提交。产生事件时通知 Relay 一次。
 
 活动指标只统计课程与教师收藏。`Resolve` 检查请求人的当前权限，返回 `ResolvedTarget{ID, Kind, Title}`，其中 `ID` 使用所属模块提供的规范 ID。
 
@@ -34,7 +34,7 @@ favorites 等于当日新增数减当日取消数，对外下限为零。内部�
 
 ## 公开接口与一致性
 
-postgres.Repository.ActivitySnapshot(ctx, fromDay, toDay, cursor, limit) 返回 []Activity、next、error。日期必须为 UTC 零点，窗口左闭右开，limit 为 1 至 100。首轮 cursor 为空，next 为空表示结束。
+postgres.Repository.ActivitySnapshot(ctx, fromDay, toDay, cursor, limit) 返回 []Activity、next、error。开始及结束时间取北京时间零点，窗口左闭右开，覆盖 1 至 366 个日期。limit 为 1 至 100。首轮 cursor 为空，next 为空表示结束。
 
 分页绑定窗口、上限和 PostgreSQL 可见性快照，读取不可变历史中的首轮最新修订，包含零计数和不可见墓碑。分页期间的新增、修改及延迟提交不能进入旧快照。游标有效五分钟，窗口或上限变化会被拒绝。
 
@@ -54,9 +54,19 @@ OutboxLag(ctx) 只读返回未确认事件积压条数、最老未确认时间�
 
 收藏模块向 Outbox 写入活动事件。backend 的通用 Relay 按类型分发，负责 LISTEN、启动和重连补读、60 秒兜底轮询，以及失败主题的退避。
 
+## 既有 UTC 日计数迁移
+
+迁移身份在事务内根据保留事件的原始时刻及可确认的修订净额重新归日。仍存在的收藏可补充有可靠证据的新增时刻。每个目标的日净额中，无法判定时刻的余量按 UTC 日已过去时段与北京时间日期的重叠时长分配。
+
+完整 UTC 日约三分之一未知余量移到次日，按最近整数取整。首次切换时刻决定当日分配比例，UTC 16:00 前的未知余量全部留在当地同日。迁移保持有符号总量，历史单日公开计数与窗口热度可能变动。
+
+切换与回退前停止活动写入、清理和 Relay。迁移刷新受影响的快照及递增修订，使既有分页游标失效。旧协议待发事件保留载荷并退出待发队列。Search 从提供方最新快照重建排名。
+
+使用迁移身份调用 `postgres.RollbackActivityCalendar(ctx, db)` 可恢复 UTC 日计数。内部按目标和 UTC 日保存净转移额，包括切换后产生的变动。回退保留新写入、发布 UTC 版修订，并支持再次迁移。
+
 ## 清理、权限与验证
 
-PruneActivityHistory(ctx, beforeDay, limit) 每次最多删除 1000 条旧修订，保留每个对象日的最新修订和墓碑。清理在同一事务提高保留修订号，已有分页游标失效，调用方须中止重建。
+PruneActivityHistory(ctx, beforeDay, limit) 使用北京时间零点作为清理截止，每次最多删除 1000 条旧修订，保留每个对象日的最新修订和墓碑。清理在同一事务提高保留修订号，已有分页游标失效，调用方须中止重建。
 
 一条 UPDATE 或 DELETE 语句实际影响历史记录时，保留版本只增加一次。空清理保留当前版本。固定快照使用 REPEATABLE READ，日期范围查询可使用现有的 (day, id, revision) 索引。
 
@@ -67,10 +77,11 @@ PruneActivityHistory(ctx, beforeDay, limit) 每次最多删除 1000 条旧修订
 | 场景 | 验证条件 |
 | --- | --- |
 | FAV-ACTIVITY-01 | 本来源计数、权限、并发、回滚、事件 Schema、固定分页、墓碑和清理上限 |
+| FAV-ACTIVITY-02 | UTC 日归档重新分桶、近似余量分配、幂等切换及保留后续写入的回退 |
 
 ## 目录批量读取
 
-`DirectoryActivitySnapshot(ctx, kind, from, until)` 为可信 Go 装配返回课程或教师的日净新增汇总。日期为 UTC 零点，窗口左闭右开，最长 366 天。最多返回十万个目标，超过上限时返回服务不可用。
+`DirectoryActivitySnapshot(ctx, kind, from, until)` 为可信 Go 装配返回课程或教师的日净新增汇总。开始及结束时间取北京时间零点，窗口左闭右开，最长 366 个日期。包含今天的 N 日窗口从今天前第 N−1 天零点起，到明天零点结束。最多返回十万个目标，超过上限时返回服务不可用。
 
 消费者须先检查当前学校内容准入，再按 catalog 的当前可见目录限制结果。该端口仅返回目标 ID 和汇总计数。
 

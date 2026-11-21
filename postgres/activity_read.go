@@ -68,7 +68,7 @@ func (r *Repository) ReadActivity(ctx context.Context, id string) (m.Activity, e
 }
 func (r *Repository) ActivitySnapshot(ctx context.Context, fromDay, toDay time.Time, cursor string, limit int) ([]m.Activity, string, error) {
 	out := []m.Activity{}
-	if !m.ActivityDay(fromDay) || !m.ActivityDay(toDay) || !fromDay.Before(toDay) || limit < 1 || limit > 100 || len(cursor) > 16384 {
+	if !m.ActivityWindow(fromDay, toDay) || limit < 1 || limit > 100 || len(cursor) > 16384 {
 		return out, "", m.ErrInput
 	}
 	state := activityCursor{Version: 1, From: fromDay, To: toDay, Limit: limit, Expires: time.Now().Add(5 * time.Minute)}
@@ -104,7 +104,7 @@ func (r *Repository) ActivitySnapshot(ctx context.Context, fromDay, toDay time.T
 	if len(state.Visibility) > 8192 {
 		return out, "", m.ErrUnavailable
 	}
-	rows, e := tx.QueryContext(ctx, `SELECT data FROM (SELECT DISTINCT ON(id COLLATE "C") id,data FROM favorites.activity_history WHERE day>=$1 AND day<$2 AND id COLLATE "C">$3 COLLATE "C" AND pg_visible_in_snapshot(recorded_xid,$4::pg_snapshot) ORDER BY id COLLATE "C",revision DESC) latest ORDER BY id COLLATE "C" LIMIT $5`, fromDay, toDay, state.After, state.Visibility, limit+1)
+	rows, e := tx.QueryContext(ctx, `SELECT data FROM (SELECT DISTINCT ON(id COLLATE "C") id,data FROM favorites.activity_history WHERE day>=$1::text::date AND day<$2::text::date AND id COLLATE "C">$3 COLLATE "C" AND pg_visible_in_snapshot(recorded_xid,$4::pg_snapshot) ORDER BY id COLLATE "C",revision DESC) latest ORDER BY id COLLATE "C" LIMIT $5`, m.ActivityDate(fromDay), m.ActivityDate(toDay), state.After, state.Visibility, limit+1)
 	if e != nil {
 		return out, "", safe(e)
 	}
@@ -147,7 +147,7 @@ func (r *Repository) PruneActivityHistory(ctx context.Context, beforeDay time.Ti
 	if !r.readyDB() {
 		return 0, m.ErrUnavailable
 	}
-	result, e := r.DB.ExecContext(ctx, `DELETE FROM favorites.activity_history WHERE (id,revision) IN (SELECT h.id,h.revision FROM favorites.activity_history h JOIN favorites.activity_buckets b USING(id) WHERE h.day<$1 AND h.revision<b.revision ORDER BY h.day,h.id,h.revision LIMIT $2)`, beforeDay, limit)
+	result, e := r.DB.ExecContext(ctx, `DELETE FROM favorites.activity_history WHERE (id,revision) IN (SELECT h.id,h.revision FROM favorites.activity_history h JOIN favorites.activity_buckets b USING(id) WHERE h.day<$1::text::date AND h.revision<b.revision ORDER BY h.day,h.id,h.revision LIMIT $2)`, m.ActivityDate(beforeDay), limit)
 	if e != nil {
 		return 0, safe(e)
 	}

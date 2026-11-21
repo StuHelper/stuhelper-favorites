@@ -26,7 +26,7 @@ func (c customTargetSource) Resolve(_ context.Context, _, kind, id string) (f.Re
 func TestUnicodeActivityIDCursorValidationAndSanitizedDatabaseErrors(t *testing.T) {
 	x := setup(t)
 	ctx := context.Background()
-	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	day := f.ActivityDayStart(time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 	x.s.Now = func() time.Time { return day }
 
 	// A-05 Part 1: 70-rune CJK canonical target ID (210 UTF-8 bytes > 200, ActivityID len 298 <= 512)

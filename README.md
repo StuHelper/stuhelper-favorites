@@ -64,7 +64,7 @@ POST 请求须发送 `Content-Type: application/json` 和 `Idempotency-Key`，�
 
 回执、Outbox 和审计的清理身份需要 `requests`、`outbox`、`events` 的 SELECT 和 DELETE。历史清理身份可读取 `activity_buckets`，可读取和删除 `activity_history`。
 
-`Ready` 校验九张表的操作权限、两个序列及活动保留版本行。`CheckRuntime` 额外检查角色和破坏性权限。
+`Ready` 校验九张表的操作权限、两个序列及已切换到北京时间的活动保留版本行。`CheckRuntime` 额外检查角色和破坏性权限。
 
 backend 以 `STUHELPER_FAVORITES_CONFIG` 指向私有 JSON 文件的绝对路径，字段为 `database_dsn_file` 和 `connections`（2 至 32）。配置和 DSN 可采用 0600 普通文件或由 systemd 凭据目录交付。
 

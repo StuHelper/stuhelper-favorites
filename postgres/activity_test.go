@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,9 +77,9 @@ func activityDatabase(t *testing.T) (*Repository, *Repository, *sql.DB) {
 func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	repo, cleaner, db := activityDatabase(t)
 	ctx := context.Background()
-	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	day := m.ActivityDayStart(time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 	change := func(tx *sql.Tx, id string, delta int64) error {
-		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, day, delta, day)
+		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, delta, day)
 	}
 	apply := func(id string, delta int64) error {
 		tx, e := repo.DB.BeginTx(ctx, nil)
@@ -194,12 +195,30 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	if _, _, e = repo.ActivitySnapshot(ctx, day.Add(time.Hour), day.AddDate(0, 0, 1), "", 1); e == nil {
 		t.Fatal("non-midnight accepted")
 	}
-	raw, e := os.ReadFile("../contracts/discovery-activity.schema.json")
+	pin, e := os.ReadFile("../contracts/discovery-activity.source.json")
 	if e != nil {
 		t.Fatal(e)
 	}
-	if fmt.Sprintf("%x", sha256.Sum256(raw)) != "0449f23e99a9146b01e56f00942b49fc756e5c60fb1d4e0486520651d02fc867" {
-		t.Fatal("activity contract drift")
+	var activitySource struct {
+		Provider string `json:"provider"`
+		Commit   string `json:"source_commit"`
+		Path     string `json:"path"`
+		SHA256   string `json:"sha256"`
+	}
+	if e = json.Unmarshal(pin, &activitySource); e != nil {
+		t.Fatal(e)
+	}
+	commit, e := hex.DecodeString(activitySource.Commit)
+	if e != nil || len(commit) != 20 || activitySource.Provider != "search" ||
+		activitySource.Path != "contracts/discovery-activity.schema.json" {
+		t.Fatal("invalid discovery activity source metadata")
+	}
+	raw, e := os.ReadFile("../" + activitySource.Path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if digest := fmt.Sprintf("%x", sha256.Sum256(raw)); digest != activitySource.SHA256 {
+		t.Fatalf("activity contract drift: actual sha256 %s, pinned %s", digest, activitySource.SHA256)
 	}
 	var definition any
 	if e = json.Unmarshal(raw, &definition); e != nil {
@@ -273,7 +292,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 		t.Fatal("latest tombstone removed", current, e)
 	}
 	// A failed outbox insert cannot leave a partial counter revision.
-	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v1') NOT VALID`); e != nil {
+	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v2') NOT VALID`); e != nil {
 		t.Fatal(e)
 	}
 	current, e = repo.ReadActivity(ctx, m.ActivityID("course", "a", day))

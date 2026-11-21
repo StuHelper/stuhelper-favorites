@@ -92,6 +92,9 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, e = tx.ExecContext(ctx, Schema); e != nil {
 		return e
 	}
+	if e = switchActivityCalendar(ctx, tx, true); e != nil {
+		return e
+	}
 	return tx.Commit()
 }
 func (r *Repository) Ready(ctx context.Context) error {
@@ -101,7 +104,7 @@ func (r *Repository) Ready(ctx context.Context) error {
 	var ready bool
 	e := r.DB.QueryRowContext(ctx, `SELECT
    has_schema_privilege(current_user,'favorites','USAGE')
-   AND EXISTS(SELECT 1 FROM favorites.activity_retention WHERE singleton)
+   AND EXISTS(SELECT 1 FROM favorites.activity_retention WHERE singleton AND shanghai_day)
    AND NOT EXISTS(
       SELECT 1 FROM (VALUES
 				('favorites.owners',ARRAY['SELECT','INSERT','UPDATE']),
@@ -311,7 +314,7 @@ func (t *transaction) SaveItem(v f.Item) error {
 		return safe(e)
 	}
 	if !exists && (v.Kind == "course" || v.Kind == "teacher") {
-		return t.changeActivity(v.Kind, canonical, v.CreatedAt, 1, v.CreatedAt)
+		return t.changeActivity(v.Kind, canonical, 1, v.CreatedAt)
 	}
 	return nil
 }
@@ -322,7 +325,7 @@ func (t *transaction) DeleteItem(id string, at time.Time) error {
 		return safe(e)
 	}
 	if kind == "course" || kind == "teacher" {
-		return t.changeActivity(kind, target, at, -1, at)
+		return t.changeActivity(kind, target, -1, at)
 	}
 	return nil
 }
@@ -389,7 +392,7 @@ func (t *transaction) DeleteItems(ids []string, at time.Time) ([]string, error) 
 	}
 	slices.SortFunc(deltas, func(a, b bucketDelta) int { return strings.Compare(a.activityID, b.activityID) })
 	for _, d := range deltas {
-		if err := t.changeActivity(d.kind, d.target, at, d.delta, at); err != nil {
+		if err := t.changeActivity(d.kind, d.target, d.delta, at); err != nil {
 			return nil, err
 		}
 	}
