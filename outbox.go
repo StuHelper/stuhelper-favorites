@@ -16,6 +16,33 @@ type OutboxReader interface {
 	ConfirmOutbox(context.Context, string) error
 }
 
+// OutboxLag summarizes unsent outbox backlog for relay health checks and metrics.
+type OutboxLag struct {
+	PendingCount    int64
+	OldestPendingAt time.Time
+	OldestAge       time.Duration
+}
+
+type OutboxObserver interface {
+	OutboxLag(context.Context) (OutboxLag, error)
+}
+
+func (s *Service) OutboxLag(ctx context.Context) (OutboxLag, error) {
+	if s.Repo == nil {
+		return OutboxLag{}, ErrUnavailable
+	}
+	obs, ok := s.Repo.(OutboxObserver)
+	if !ok {
+		return OutboxLag{}, ErrUnavailable
+	}
+	lag, e := obs.OutboxLag(ctx)
+	if e != nil || lag.PendingCount == 0 || s.Now == nil {
+		return lag, e
+	}
+	lag.OldestAge = max(0, s.now().Sub(lag.OldestPendingAt))
+	return lag, nil
+}
+
 // Envelope carries either a discovery document or the minimal business revision.
 // Consumers select a payload type using Type; no private persistence model is sent.
 type Envelope struct {

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	m "github.com/StuHelper/stuhelper-favorites"
+	"github.com/StuHelper/stuhelper-favorites/postgres/testdb"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -17,7 +19,7 @@ import (
 	"time"
 )
 
-func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
+func activityDatabase(t *testing.T) (*Repository, *Repository, *sql.DB) {
 	t.Helper()
 	dsn := os.Getenv("STUHELPER_FAVORITES_TEST_DSN")
 	if dsn == "" {
@@ -30,23 +32,29 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 	admin := stdlib.OpenDB(*cfg)
 	name := fmt.Sprintf("activity_%d", time.Now().UnixNano())
 	role := name + "_runtime"
+	cleanerRole := name + "_cleaner"
 	if _, e = admin.Exec(`CREATE DATABASE ` + name); e != nil {
 		t.Fatal(e)
 	}
 	cfg.Database = name
 	db := stdlib.OpenDB(*cfg)
-	if _, e = db.Exec(Schema); e != nil {
+	if e = Migrate(context.Background(), db); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN`); e != nil {
+	if _, e = admin.Exec(`CREATE ROLE ` + role + ` LOGIN; CREATE ROLE ` + cleanerRole + ` LOGIN`); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role); e != nil {
+	if _, e = db.Exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC;` + testdb.RuntimeGrants(role) + `;GRANT USAGE ON SCHEMA favorites TO ` + cleanerRole + `;GRANT SELECT ON favorites.activity_buckets TO ` + cleanerRole + `;GRANT SELECT,DELETE ON favorites.activity_history TO ` + cleanerRole); e != nil {
 		t.Fatal(e)
 	}
-	cfg.User = role
-	runtime := stdlib.OpenDB(*cfg)
+	runtimeCfg := *cfg
+	runtimeCfg.User = role
+	runtime := stdlib.OpenDB(runtimeCfg)
+	cleanerCfg := *cfg
+	cleanerCfg.User = cleanerRole
+	cleaner := stdlib.OpenDB(cleanerCfg)
 	t.Cleanup(func() {
+		cleaner.Close()
 		runtime.Close()
 		db.Close()
 		if _, e := admin.Exec(`DROP DATABASE ` + name + ` WITH(FORCE)`); e != nil {
@@ -55,16 +63,23 @@ func activityDatabase(t *testing.T) (*Repository, *sql.DB) {
 		if _, e := admin.Exec(`DROP ROLE ` + role); e != nil {
 			t.Error(e)
 		}
+		if _, e := admin.Exec(`DROP ROLE ` + cleanerRole); e != nil {
+			t.Error(e)
+		}
 		admin.Close()
 	})
-	return &Repository{DB: runtime}, db
+	repo := &Repository{DB: runtime}
+	if e = repo.CheckRuntime(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	return repo, &Repository{DB: cleaner}, db
 }
 func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
-	repo, db := activityDatabase(t)
+	repo, cleaner, db := activityDatabase(t)
 	ctx := context.Background()
-	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	day := m.ActivityDayStart(time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC))
 	change := func(tx *sql.Tx, id string, delta int64) error {
-		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, "school", day, delta, 0, nil, day)
+		return (&transaction{tx: tx, ctx: ctx}).changeActivity("course", id, delta, day)
 	}
 	apply := func(id string, delta int64) error {
 		tx, e := repo.DB.BeginTx(ctx, nil)
@@ -138,7 +153,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	}
 	firstCursor := cursor
 	// Empty cleanup does not invalidate a reader when no history was removed.
-	if n, e := repo.PruneActivityHistory(ctx, day, 1); e != nil || n != 0 {
+	if n, e := cleaner.PruneActivityHistory(ctx, day, 1); e != nil || n != 0 {
 		t.Fatal(n, e)
 	}
 	if _, _, e := repo.ActivitySnapshot(ctx, day, day.AddDate(0, 0, 1), firstCursor, 1); e != nil {
@@ -180,12 +195,30 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	if _, _, e = repo.ActivitySnapshot(ctx, day.Add(time.Hour), day.AddDate(0, 0, 1), "", 1); e == nil {
 		t.Fatal("non-midnight accepted")
 	}
-	raw, e := os.ReadFile("../contracts/discovery-activity.schema.json")
+	pin, e := os.ReadFile("../contracts/discovery-activity.source.json")
 	if e != nil {
 		t.Fatal(e)
 	}
-	if fmt.Sprintf("%x", sha256.Sum256(raw)) != "0449f23e99a9146b01e56f00942b49fc756e5c60fb1d4e0486520651d02fc867" {
-		t.Fatal("activity contract drift")
+	var activitySource struct {
+		Provider string `json:"provider"`
+		Commit   string `json:"source_commit"`
+		Path     string `json:"path"`
+		SHA256   string `json:"sha256"`
+	}
+	if e = json.Unmarshal(pin, &activitySource); e != nil {
+		t.Fatal(e)
+	}
+	commit, e := hex.DecodeString(activitySource.Commit)
+	if e != nil || len(commit) != 20 || activitySource.Provider != "search" ||
+		activitySource.Path != "contracts/discovery-activity.schema.json" {
+		t.Fatal("invalid discovery activity source metadata")
+	}
+	raw, e := os.ReadFile("../" + activitySource.Path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if digest := fmt.Sprintf("%x", sha256.Sum256(raw)); digest != activitySource.SHA256 {
+		t.Fatalf("activity contract drift: actual sha256 %s, pinned %s", digest, activitySource.SHA256)
 	}
 	var definition any
 	if e = json.Unmarshal(raw, &definition); e != nil {
@@ -247,7 +280,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 	if e = apply("a", 1); e != nil {
 		t.Fatal(e)
 	}
-	n, e := repo.PruneActivityHistory(ctx, day.AddDate(0, 0, 1), 1)
+	n, e := cleaner.PruneActivityHistory(ctx, day.AddDate(0, 0, 1), 1)
 	if e != nil || n != 1 {
 		t.Fatal(n, e)
 	}
@@ -259,7 +292,7 @@ func TestActivitySnapshotSchemaRollbackAndBoundedCleanup(t *testing.T) {
 		t.Fatal("latest tombstone removed", current, e)
 	}
 	// A failed outbox insert cannot leave a partial counter revision.
-	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v1') NOT VALID`); e != nil {
+	if _, e = db.Exec(`ALTER TABLE favorites.outbox ADD CONSTRAINT fail_activity CHECK(data->>'type'<>'discovery.activity.v2') NOT VALID`); e != nil {
 		t.Fatal(e)
 	}
 	current, e = repo.ReadActivity(ctx, m.ActivityID("course", "a", day))

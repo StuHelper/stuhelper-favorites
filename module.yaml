@@ -23,17 +23,48 @@ capability_requires:
       api: 1
 specifications:
   - docs/spec/activity.md
+# 收藏和注销场景沿用主工作区编号。活动与目录聚合场景见 docs/spec/activity.md。
 scenario_tests:
   FAV-ACTIVITY-01:
+    - sdk_contract_test.go#TestOutboxLagRetainsEnvelopeTimeAfterMigration
+    - canonical_migration_test.go#TestMigrationKeepsOldestCanonicalFavoritePerOwner
+    - canonical_migration_test.go#TestCanonicalMigrationPublishesDuplicateRemoval
+    - postgres/snapshot_format_test.go#TestSnapshotRequiresPositiveTransactionIDs
+    - outbox_fifo_test.go#TestPendingOutboxDeliversOldestEligibleEvents
+    - history_epoch_test.go#TestHistoryPruneAdvancesOnceForNonemptyBatch
+    - history_epoch_test.go#TestRepeatableReadKeepsSnapshotAcrossConcurrentCommit
     - postgres/activity_test.go#TestActivitySnapshotSchemaRollbackAndBoundedCleanup
     - activity_test.go#TestActivityNetFavoritesCrossDayCancellationAndConcurrentIdempotency
     - activity_test.go#TestActivityFavoriteWriteAndClosureRollbackWithOutbox
     - activity_test.go#TestActivityFavoritesUseCanonicalTargetWithoutChangingOwnReceipt
+    - canonical_migration_test.go#TestCanonicalTargetDeduplicationAndLegacyMigration
+    - validation_errors_test.go#TestUnicodeActivityIDCursorValidationAndSanitizedDatabaseErrors
+  FAV-ACTIVITY-02:
+    - postgres/activity_calendar_test.go#TestActivityCalendarMigrationExactApproximateAndRollback
+    - postgres/activity_calendar_test.go#TestActivityCalendarAllocatesOnlyElapsedTime
   FAV-01:
+    - tx_isolation_test.go#TestReplayThroughRepositoryAdapterDuringSourceOutage
+    - postgres/runtime_test.go#TestRuntimePrivilegeIsolationAndFullTableReadiness
+    - retention_test.go#TestReplayExpiryAndBoundedRetention
+    - retention_test.go#TestReaddAfterReceiptExpires
     - integration_test.go#TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay
+    - tx_isolation_test.go#TestAddReleasesDatabaseConnectionsDuringSlowResolveAndReadQueriesAvoidWriteLocks
+    - target_ops_test.go#TestTargetSetAndRemoveSwitchFoldersIdempotentlyWithoutDuplicateActivity
+    - folders_ux_test.go#TestFoldersDefaultPinnedDeterministicOrderResetNameAndKindCounts
+    - batch_quota_test.go#TestBatchMoveRemoveAtomicityActivityAggregationAndOwnerQuotas
+    - batch_quota_test.go#TestBatchRemovalMatchesClosureActivityOrder
+    - batch_quota_test.go#TestBatchRemovalCoalescesLegacyCanonicalDuplicates
+    - errors_refresh_test.go#TestTypedErrorReasonsAndTitleSnapshotRefresh
+    - export_test.go#TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation
   FAV-02:
     - target_filter_test.go#TestFavoritesTargetFilterOwnershipValidationAndPagination
+    - http_contract_input_test.go#TestHTTPContractEncodingInputBoundariesAndSDKCompatibility
+    - http_contract_input_test.go#TestFolderNameNormalizationReplaysPreUpgradeReceipts
+    - sdk_contract_test.go#TestGeneratedSDKRoutesCourseReferencesTimeoutAndOutboxLag
   PC-07:
+    - closure_activity_test.go#TestClosureUsesServiceClockAndOrderedActivityIDs
+    - closure_activity_test.go#TestClosureBatchesDatabaseRoundTrips
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:
     - activity_totals_test.go#TestUIDirectoryActivityTotalsRespectWindowAndDailyNet
+    - activity_totals_test.go#TestActivityWindowAtBeijingMidnight

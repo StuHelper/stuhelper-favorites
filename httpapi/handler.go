@@ -5,7 +5,9 @@ import (
 	"errors"
 	f "github.com/StuHelper/stuhelper-favorites"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -18,6 +20,7 @@ type Handler struct {
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if h.Service == nil || h.Authenticate == nil {
 		failure(w, f.ErrUnavailable)
 		return
@@ -31,15 +34,43 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, f.ErrUnauthenticated)
 		return
 	}
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/favorites/")
-	parts := strings.Split(path, "/")
+	escaped := r.URL.EscapedPath()
+	if !strings.HasPrefix(r.URL.Path, "/api/v1/favorites/") || !strings.HasPrefix(escaped, "/api/v1/favorites/") {
+		failure(w, f.ErrNotFound)
+		return
+	}
+	rawParts := strings.Split(strings.TrimPrefix(escaped, "/api/v1/favorites/"), "/")
+	parts := make([]string, len(rawParts))
+	for i, p := range rawParts {
+		unescaped, err := url.PathUnescape(p)
+		if err != nil {
+			failure(w, f.ErrInput)
+			return
+		}
+		parts[i] = unescaped
+	}
+	if len(r.Header.Values("Idempotency-Key")) > 1 {
+		failure(w, f.ErrInput)
+		return
+	}
 	key := r.Header.Get("Idempotency-Key")
 	ctx := r.Context()
 	var out any
 	if r.Method == http.MethodGet && len(parts) == 1 {
-		q := r.URL.Query()
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			failure(w, f.ErrInput)
+			return
+		}
 		limit := 30
+		if parts[0] == "export" {
+			limit = 200
+		}
 		if q.Has("limit") {
+			if len(q["limit"]) != 1 {
+				failure(w, f.ErrInput)
+				return
+			}
 			limit, e = strconv.Atoi(q.Get("limit"))
 			if e != nil {
 				failure(w, f.ErrInput)
@@ -48,17 +79,32 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch parts[0] {
 		case "folders":
+			if !singleQuery(q, "after", "limit") {
+				failure(w, f.ErrInput)
+				return
+			}
 			out, e = h.Service.ListFolders(ctx, owner, q.Get("after"), limit)
 		case "items":
-			var targets []string
-			if q.Has("target_ids") {
-				if len(q["target_ids"]) != 1 || len(q.Get("target_ids")) > 80100 {
-					failure(w, f.ErrInput)
-					return
-				}
-				targets = strings.Split(q.Get("target_ids"), ",")
+			if !singleQuery(q, "after", "limit", "kind", "folder_id", "q", "sort") {
+				failure(w, f.ErrInput)
+				return
+			}
+			if len(q.Get("target_ids")) > 80100 {
+				failure(w, f.ErrInput)
+				return
+			}
+			targets, ok := parseTargetIDs(r.URL.RawQuery)
+			if !ok {
+				failure(w, f.ErrInput)
+				return
 			}
 			out, e = h.Service.List(ctx, owner, f.Filter{TargetIDs: targets, After: q.Get("after"), Limit: limit, FolderID: q.Get("folder_id"), Kind: q.Get("kind"), Query: q.Get("q"), Sort: q.Get("sort")})
+		case "export":
+			if !singleQuery(q, "folder_id", "kind", "after", "limit") {
+				failure(w, f.ErrInput)
+				return
+			}
+			out, e = h.Service.Export(ctx, owner, f.ExportFilter{FolderID: q.Get("folder_id"), Kind: q.Get("kind"), After: q.Get("after"), Limit: limit})
 		default:
 			e = f.ErrNotFound
 		}
@@ -79,11 +125,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			out, e = h.Service.Add(ctx, owner, key, in)
 		case len(parts) == 3 && parts[0] == "folders" && parts[2] == "rename":
-			var in f.Rename
+			var in struct {
+				Name     *string `json:"name"`
+				Revision int64   `json:"revision"`
+			}
 			if decode(w, r, &in) != nil {
 				return
 			}
-			out, e = h.Service.RenameFolder(ctx, owner, key, parts[1], in)
+			if in.Name == nil {
+				failure(w, f.ErrInput)
+				return
+			}
+			out, e = h.Service.RenameFolder(ctx, owner, key, parts[1], f.Rename{Name: *in.Name, Revision: in.Revision})
 		case len(parts) == 3 && parts[0] == "folders" && parts[2] == "delete":
 			var in struct {
 				Revision int64 `json:"revision"`
@@ -92,6 +145,18 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.DeleteFolder(ctx, owner, key, parts[1], in.Revision)
+		case len(parts) == 2 && parts[0] == "items" && parts[1] == "batch-move":
+			var in f.BatchMove
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.BatchMove(ctx, owner, key, in)
+		case len(parts) == 2 && parts[0] == "items" && parts[1] == "batch-remove":
+			var in f.BatchRemove
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.BatchRemove(ctx, owner, key, in)
 		case len(parts) == 3 && parts[0] == "items" && parts[2] == "move":
 			var in f.Move
 			if decode(w, r, &in) != nil {
@@ -106,6 +171,23 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			out, e = h.Service.Remove(ctx, owner, key, parts[1], in.Revision)
+		case len(parts) == 2 && parts[0] == "targets" && parts[1] == "set":
+			var in f.Add
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.SetTarget(ctx, owner, key, in)
+		case len(parts) == 2 && parts[0] == "targets" && parts[1] == "remove":
+			var in f.Target
+			if decode(w, r, &in) != nil {
+				return
+			}
+			out, e = h.Service.RemoveTarget(ctx, owner, key, in)
+		case len(parts) == 3 && parts[0] == "items" && parts[2] == "refresh":
+			if decodeEmpty(w, r) != nil {
+				return
+			}
+			out, e = h.Service.Refresh(ctx, owner, key, parts[1])
 		default:
 			e = f.ErrNotFound
 		}
@@ -119,10 +201,89 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(out)
 }
+func singleQuery(q url.Values, names ...string) bool {
+	for _, name := range names {
+		if len(q[name]) > 1 {
+			return false
+		}
+	}
+	return true
+}
+func parseTargetIDs(rawQuery string) ([]string, bool) {
+	var raw string
+	found := false
+	for rawQuery != "" {
+		var pair string
+		pair, rawQuery, _ = strings.Cut(rawQuery, "&")
+		if pair == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(pair, "=")
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			return nil, false
+		}
+		if key != "target_ids" {
+			continue
+		}
+		if found || len(v) > 3*80100 {
+			return nil, false
+		}
+		found = true
+		raw = v
+	}
+	if !found {
+		return nil, true
+	}
+	parts := strings.SplitN(raw, ",", 101)
+	if len(parts) > 100 {
+		return nil, false
+	}
+	out := make([]string, len(parts))
+	for i, item := range parts {
+		unescaped, err := url.QueryUnescape(item)
+		if err != nil {
+			return nil, false
+		}
+		out[i] = unescaped
+	}
+	return out, true
+}
 func decode(w http.ResponseWriter, r *http.Request, v any) error {
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	if len(r.Header.Values("Content-Type")) > 1 {
+		failure(w, f.ErrInput)
+		return f.ErrInput
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		failure(w, f.ErrInput)
+		return f.ErrInput
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 131072))
 	decoder.DisallowUnknownFields()
 	e := decoder.Decode(v)
+	if e == nil {
+		var extra any
+		if decoder.Decode(&extra) != io.EOF {
+			e = f.ErrInput
+		}
+	}
+	if e != nil {
+		failure(w, f.ErrInput)
+	}
+	return e
+}
+func decodeEmpty(w http.ResponseWriter, r *http.Request) error {
+	if r.Body == nil {
+		return nil
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
+	decoder.DisallowUnknownFields()
+	var empty struct{}
+	e := decoder.Decode(&empty)
+	if e == io.EOF {
+		return nil
+	}
 	if e == nil {
 		var extra any
 		if decoder.Decode(&extra) != io.EOF {
@@ -148,6 +309,10 @@ func failure(w http.ResponseWriter, e error) {
 	case errors.Is(e, f.ErrConflict):
 		code, status = "conflict", 409
 	}
+	out := struct {
+		Code   string `json:"code"`
+		Reason string `json:"reason,omitempty"`
+	}{Code: code, Reason: string(f.ErrorReason(e))}
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"code": code})
+	_ = json.NewEncoder(w).Encode(out)
 }

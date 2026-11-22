@@ -7,6 +7,11 @@ import (
 	"time"
 )
 
+const (
+	DefaultMaxFolders = 200
+	DefaultMaxItems   = 10000
+)
+
 var (
 	ErrInput           = errors.New("invalid_input")
 	ErrUnauthenticated = errors.New("unauthenticated")
@@ -16,12 +21,54 @@ var (
 	ErrUnavailable     = errors.New("unavailable")
 )
 
+type KindCounts struct {
+	Course   int64 `json:"course"`
+	Teacher  int64 `json:"teacher"`
+	Resource int64 `json:"resource"`
+}
+type Reason string
+
+const (
+	ReasonFolderNameConflict     Reason = "folder_name_conflict"
+	ReasonRevisionConflict       Reason = "revision_conflict"
+	ReasonIdempotencyConflict    Reason = "idempotency_conflict"
+	ReasonFolderMismatch         Reason = "folder_mismatch"
+	ReasonDefaultFolderProtected Reason = "default_folder_protected"
+	ReasonAdmissionRequired      Reason = "admission_required"
+	ReasonOwnerClosed            Reason = "owner_closed"
+)
+
+type reasonedError struct {
+	base   error
+	reason Reason
+}
+
+func (e reasonedError) Error() string { return e.base.Error() + ": " + string(e.reason) }
+func (e reasonedError) Unwrap() error { return e.base }
+
+func WithReason(base error, reason Reason) error {
+	if base == nil || reason == "" {
+		return base
+	}
+	return reasonedError{base: base, reason: reason}
+}
+func ErrorReason(err error) Reason {
+	var r reasonedError
+	if errors.As(err, &r) {
+		return r.reason
+	}
+	return ""
+}
+
 type Folder struct {
-	ItemCount int64  `json:"item_count"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Default   bool   `json:"is_default"`
-	Revision  int64  `json:"revision"`
+	CreatedAt  time.Time  `json:"-"`
+	KindCounts KindCounts `json:"kind_counts"`
+	ItemCount  int64      `json:"item_count"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Revision   int64      `json:"revision"`
+	Position   int        `json:"-"`
+	Default    bool       `json:"is_default"`
 }
 type Item struct {
 	CanonicalTargetID string    `json:"-"`
@@ -46,6 +93,10 @@ type Add struct {
 	TargetID string `json:"target_id"`
 	FolderID string `json:"folder_id,omitempty"`
 }
+type Target struct {
+	Kind     string `json:"kind"`
+	TargetID string `json:"target_id"`
+}
 type Rename struct {
 	Name     string `json:"name"`
 	Revision int64  `json:"revision"`
@@ -58,6 +109,17 @@ type Removed struct {
 	ID      string `json:"id"`
 	Removed bool   `json:"removed"`
 }
+type BatchMove struct {
+	FolderID string   `json:"folder_id"`
+	IDs      []string `json:"ids"`
+}
+type BatchRemove struct {
+	IDs []string `json:"ids"`
+}
+type BatchRemoved struct {
+	IDs          []string `json:"ids"`
+	RemovedCount int64    `json:"removed_count"`
+}
 type Filter struct {
 	TargetIDs                          []string
 	FolderID, Kind, Query, Sort, After string
@@ -68,6 +130,13 @@ type Position struct {
 	Title     string
 	CreatedAt time.Time
 	Filter    string
+}
+type FolderPosition struct {
+	ID        string
+	Position  int
+	CreatedAt time.Time
+	Default   bool
+	Owner     string
 }
 
 // Source must enforce current admission and target visibility before returning a minimal title.
@@ -84,13 +153,17 @@ type Transaction interface {
 	SaveReplay(string, string, json.RawMessage) error
 	Event(string, string) error
 	Folder(string) (Folder, error)
+	FolderCount() (int, error)
 	DefaultFolder() (Folder, error)
-	Folders(string, int) ([]Folder, error)
+	Folders(FolderPosition, int) ([]Folder, error)
 	SaveFolder(Folder) error
 	DeleteFolder(string, string) error
 	Item(string) (Item, error)
+	ItemCount() (int, error)
 	Target(string, string) (Item, error)
 	Items(Filter, Position) ([]Item, error)
 	SaveItem(Item) error
+	MoveItems([]string, string) ([]Item, error)
 	DeleteItem(string, time.Time) error
+	DeleteItems([]string, time.Time) ([]string, error)
 }

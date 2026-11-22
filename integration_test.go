@@ -8,6 +8,7 @@ import (
 	f "github.com/StuHelper/stuhelper-favorites"
 	"github.com/StuHelper/stuhelper-favorites/httpapi"
 	"github.com/StuHelper/stuhelper-favorites/postgres"
+	"github.com/StuHelper/stuhelper-favorites/postgres/testdb"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"net/http"
 	"net/http/httptest"
@@ -81,7 +82,7 @@ func setup(t *testing.T) fixture {
 			t.Fatal(e)
 		}
 	}
-	if _, e = owner.Exec(`CREATE ROLE ` + role + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;GRANT USAGE ON SCHEMA favorites TO ` + role + `;GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA favorites TO ` + role + `;GRANT USAGE ON ALL SEQUENCES IN SCHEMA favorites TO ` + role + `;REVOKE UPDATE ON favorites.requests FROM ` + role + `;REVOKE UPDATE,DELETE ON favorites.events FROM ` + role + `;CREATE SCHEMA foreign_data;CREATE TABLE foreign_data.secret(value text);`); e != nil {
+	if _, e = owner.Exec(`CREATE ROLE ` + role + ` LOGIN;REVOKE ALL ON SCHEMA public FROM PUBLIC;` + testdb.RuntimeGrants(role) + `;CREATE SCHEMA foreign_data;CREATE TABLE foreign_data.secret(value text);`); e != nil {
 		t.Fatal(e)
 	}
 	runtime, e := sql.Open("pgx", dsn+" dbname="+name+" user="+role)
@@ -268,6 +269,7 @@ func TestFavoritesOwnershipFoldersAdmissionAndConcurrentReplay(t *testing.T) {
 	h := httpapi.Handler{Service: s, Authenticate: func(r *http.Request) (string, error) { return r.Header.Get("Test-Session"), nil }}
 	request := func(method, path, body, owner string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/v1/favorites/"+path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Test-Session", owner)
 		r.Header.Set("Idempotency-Key", "http")
 		r.Header.Set("X-Owner", "alice")
