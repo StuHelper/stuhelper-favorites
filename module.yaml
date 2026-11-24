@@ -25,6 +25,8 @@ specifications:
   - docs/spec/activity.md
 # 收藏和注销场景沿用主工作区编号。活动与目录聚合场景见 docs/spec/activity.md。
 scenario_tests:
+  RET-11:
+    - closure_retention_test.go#TestClosedOwnerExpiresOnlyAfterRecordedCompletion
   FAV-ACTIVITY-01:
     - sdk_contract_test.go#TestOutboxLagRetainsEnvelopeTimeAfterMigration
     - canonical_migration_test.go#TestMigrationKeepsOldestCanonicalFavoritePerOwner
