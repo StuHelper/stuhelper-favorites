@@ -2,20 +2,19 @@ package postgres
 
 import (
 	"context"
-	"time"
 
 	f "github.com/StuHelper/stuhelper-favorites"
 )
 
-func (r *Repository) ActivityTotals(ctx context.Context, kind string, from, until time.Time) ([]f.ActivityTotal, error) {
-	if kind != "course" && kind != "teacher" || !f.ActivityWindow(from, until) {
+func (r *Repository) ActivityTotals(ctx context.Context, kind string) ([]f.ActivityTotal, error) {
+	if kind != "course" && kind != "teacher" {
 		return nil, f.ErrInput
 	}
 	if !r.readyDB() {
 		return nil, f.ErrUnavailable
 	}
 	rows, err := r.DB.QueryContext(ctx, `SELECT target_id,sum(GREATEST(first_count,0)) FROM favorites.activity_buckets
- WHERE kind=$1 AND day>=$2::text::date AND day<$3::text::date AND visible GROUP BY target_id ORDER BY target_id LIMIT 100001`, kind, f.ActivityDate(from), f.ActivityDate(until))
+ WHERE kind=$1 AND visible GROUP BY target_id ORDER BY target_id LIMIT 100001`, kind)
 	if err != nil {
 		return nil, safe(err)
 	}
