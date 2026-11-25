@@ -1,7 +1,7 @@
 ---
 type: spec
 status: Accepted
-updated: 2026-11-22
+updated: 2026-11-26
 ---
 
 # 热门活动来源
@@ -81,7 +81,7 @@ PruneActivityHistory(ctx, beforeDay, limit) 使用北京时间零点作为清理
 
 ## 目录批量读取
 
-`DirectoryActivitySnapshot(ctx, kind, from, until)` 为可信 Go 装配返回课程或教师的日净新增汇总。开始及结束时间取北京时间零点，窗口左闭右开，最长 366 个日期。包含今天的 N 日窗口从今天前第 N−1 天零点起，到明天零点结束。最多返回十万个目标，超过上限时返回服务不可用。
+`DirectoryActivitySnapshot(ctx, kind)` 为可信 Go 装配返回课程或教师的日净新增汇总。按对象累计全部可见日汇总，每日净新增的下限为零。最多返回十万个目标，超过上限时返回服务不可用。
 
 消费者须先检查当前学校内容准入，再按 catalog 的当前可见目录限制结果。该端口仅返回目标 ID 和汇总计数。
 
@@ -89,4 +89,4 @@ PruneActivityHistory(ctx, beforeDay, limit) 使用北京时间零点作为清理
 
 | 场景 | 验证条件 |
 | --- | --- |
-| FAV-UI-01 | 批量日净新增、时间窗口、零值、非法类型及日期边界 |
+| FAV-UI-01 | 跨年度累计、每日净新增、零值、非法类型及北京时间换日 |

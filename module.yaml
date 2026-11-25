@@ -68,5 +68,5 @@ scenario_tests:
     - closure_activity_test.go#TestClosureBatchesDatabaseRoundTrips
     - closure_test.go#TestClosureDeletesCollectionsAtomicallyAndPreventsResurrection
   FAV-UI-01:
-    - activity_totals_test.go#TestUIDirectoryActivityTotalsRespectWindowAndDailyNet
+    - activity_totals_test.go#TestUIDirectoryAllTimeDailyNet
     - activity_totals_test.go#TestActivityWindowAtBeijingMidnight
