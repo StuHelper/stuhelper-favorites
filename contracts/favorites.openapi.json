@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "StuHelper Favorites",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Own favorite receipts and folders. New favorites require current content admission; own reads, moves and removals require login only. Each owner may keep up to 200 folders and 10000 favorite items. Titles are snapshots and do not grant access to public detail. Default folder has an empty name until renamed by its owner; clients localize the default label. POST requests require Content-Type application/json. Missing or unsupported media types return 400."
   },
   "security": [
@@ -1903,7 +1903,7 @@
           },
           "target_path": {
             "type": "string",
-            "description": "Canonical application path (/courses/{id}, /teachers/{id}, or /resources/items/{id})."
+            "description": "课程、教师返回当前可访问目标的规范短地址。目标已下线、已撤权或不可见时 target_path 为空字符串，收藏元数据继续导出。资源使用 /resources/items/{id}。"
           },
           "title": {
             "type": "string"
