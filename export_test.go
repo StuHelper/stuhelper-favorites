@@ -105,12 +105,23 @@ func TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation(t *testing.
 	if allItems[0].TargetId != "exam-2025" || allItems[0].TargetPath != "/resources/items/exam-2025" || allItems[0].FolderName != "" {
 		t.Fatal("unexpected resource export item", allItems[0])
 	}
-	if allItems[1].TargetId != "prof/zhang" || allItems[1].TargetPath != "/teachers/prof%2Fzhang" || allItems[1].FolderName != "选课复习包" {
+	if allItems[1].TargetId != "prof/zhang" || allItems[1].TargetPath != "" || allItems[1].FolderName != "选课复习包" {
 		t.Fatal("unexpected teacher export item", allItems[1])
 	}
-	if allItems[2].TargetId != "old-alias" || allItems[2].CanonicalTargetId != "course" || allItems[2].TargetPath != "/courses/course" || allItems[2].FolderName != "选课复习包" {
+	if allItems[2].TargetId != "old-alias" || allItems[2].CanonicalTargetId != "course" || allItems[2].TargetPath != "" || allItems[2].FolderName != "选课复习包" {
 		t.Fatal("unexpected alias course export item", allItems[2])
 	}
+
+	x.source.state.Store(0)
+	visible, err := x.s.Export(ctx, "alice", f.ExportFilter{Limit: 20})
+	if err != nil || len(visible.Items) != 3 || visible.Items[1].TargetPath != "/teachers/38271" || visible.Items[2].TargetPath != "/courses/B240012012" {
+		t.Fatal(visible, err)
+	}
+	x.source.state.Store(2)
+	if _, err = x.s.Export(ctx, "alice", f.ExportFilter{Limit: 20}); !errors.Is(err, f.ErrUnavailable) {
+		t.Fatal(err)
+	}
+	x.source.state.Store(1)
 
 	// Folder-scoped & kind-scoped export.
 	kindCourse := sdk.ExportFavoritesParamsKindCourse
@@ -192,4 +203,26 @@ func TestExportOwnFavoritesBoundedPaginationFolderFilterAndIsolation(t *testing.
 	if closedRes, err := bob.ExportFavoritesWithResponse(ctx, &sdk.ExportFavoritesParams{}); err != nil || closedRes.StatusCode() != http.StatusForbidden || closedRes.JSON403 == nil || closedRes.JSON403.Reason == nil || *closedRes.JSON403.Reason != sdk.OwnerClosed {
 		t.Fatal(err, closedRes)
 	}
+}
+
+func (s *source) VisibleAddresses(ctx context.Context, owner, kind string, ids []string) (map[string]string, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return nil, errors.New("no timeout")
+	}
+	switch s.state.Load() {
+	case 1:
+		return nil, f.ErrForbidden
+	case 2:
+		return nil, f.ErrUnavailable
+	}
+	out := map[string]string{}
+	for _, id := range ids {
+		switch id {
+		case "course":
+			out[id] = "B240012012"
+		case "prof/zhang":
+			out[id] = "38271"
+		}
+	}
+	return out, nil
 }

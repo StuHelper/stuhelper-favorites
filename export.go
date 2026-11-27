@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -45,6 +47,54 @@ type ExportPosition struct {
 
 type ExportReader interface {
 	ExportFavorites(ctx context.Context, owner, folderID, kind string, pos ExportPosition, limit int) ([]Folder, []ExportItem, error)
+}
+
+type ExportAddressSource interface {
+	VisibleAddresses(ctx context.Context, owner, kind string, ids []string) (map[string]string, error)
+}
+
+func (s *Service) exportPaths(ctx context.Context, owner string, items []ExportItem) error {
+	for i, item := range items {
+		if item.Kind == "resource" {
+			items[i].TargetPath = TargetPath("resource", item.CanonicalTargetID)
+		}
+	}
+	for _, kind := range []string{"course", "teacher"} {
+		positions := map[string][]int{}
+		var ids []string
+		for i, item := range items {
+			if item.Kind != kind {
+				continue
+			}
+			if _, seen := positions[item.CanonicalTargetID]; !seen {
+				ids = append(ids, item.CanonicalTargetID)
+			}
+			positions[item.CanonicalTargetID] = append(positions[item.CanonicalTargetID], i)
+		}
+		for batch := range slices.Chunk(ids, 100) {
+			port, ok := s.Source.(ExportAddressSource)
+			if !ok {
+				return ErrUnavailable
+			}
+			call, cancel := context.WithTimeout(ctx, 3*time.Second)
+			addresses, err := port.VisibleAddresses(call, owner, kind, batch)
+			cancel()
+			if errors.Is(err, ErrForbidden) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			for _, id := range batch {
+				if address := addresses[id]; address != "" {
+					for _, i := range positions[id] {
+						items[i].TargetPath = TargetPath(kind, address)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func TargetPath(itemKind, canonicalID string) string {
@@ -118,8 +168,8 @@ func (s *Service) Export(ctx context.Context, owner string, f ExportFilter) (Exp
 		}
 		out.Next = base64.RawURLEncoding.EncodeToString(b)
 	}
-	for i := range items {
-		items[i].TargetPath = TargetPath(items[i].Kind, items[i].CanonicalTargetID)
+	if err := s.exportPaths(ctx, owner, items); err != nil {
+		return Export{}, err
 	}
 	out.Items = items
 	return out, nil
