@@ -310,7 +310,7 @@ export interface components {
             kind: "course" | "teacher" | "resource";
             target_id: string;
             canonical_target_id: string;
-            /** @description Canonical application path (/courses/{id}, /teachers/{id}, or /resources/items/{id}). */
+            /** @description 课程、教师返回当前可访问目标的规范短地址。目标已下线、已撤权或不可见时 target_path 为空字符串，收藏元数据继续导出。资源使用 /resources/items/{id}。 */
             target_path: string;
             title: string;
             folder_id: string;
